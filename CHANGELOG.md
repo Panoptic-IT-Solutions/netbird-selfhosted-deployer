@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.2.0] - 2024-01-15
 
 ### Added
-- ✨ **Azure AD SPA (Single Page Application) support** with PKCE authentication flow
+- ✨ **Universal Azure AD client support** with PKCE authentication for all NetBird client types
+- 📱 **Multi-platform configuration** for web dashboard, desktop apps, mobile apps, and CLI tools
 - 🔧 **One-click installer script** for easy deployment
 - 📚 **Comprehensive documentation suite** including troubleshooting and security guides
 - 🛡️ **Enhanced security configurations** with fail2ban and UFW firewall
@@ -18,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 📋 **Configuration validation** and pre-deployment checks
 - 🔄 **Automated backup solutions** with encryption support
 - 📖 **Example configurations** for various deployment scenarios
+- 💻 **Desktop client configuration guide** with OAuth settings
+- 📱 **Mobile app setup instructions** for iOS and Android
+- 🔧 **CLI tool configuration** with device code flow support
 
 ### Fixed
 - 🐛 **OAuth 400 Bad Request errors** during Azure AD authentication
@@ -34,15 +38,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 📚 **Enhanced user prompts** with clearer instructions and validation
 - 🎨 **Better output formatting** with colored status messages
 - 🔧 **Optimized Docker configurations** for better performance and security
-- 📋 **Streamlined Azure AD setup process** with step-by-step guidance
+- 📋 **Streamlined Azure AD setup process** with step-by-step guidance for all platforms
+- 🌐 **Expanded Azure AD configuration** to support both SPA and mobile/desktop platforms
+- 📱 **Universal OAuth setup** with multiple redirect URIs for all client types
+- 📖 **Enhanced documentation** with platform-specific configuration instructions
 
 ### Security
-- 🔒 **Implemented PKCE-only OAuth flow** eliminating client secret requirements
+- 🔒 **Implemented universal PKCE-only OAuth flow** eliminating client secret requirements for all platforms
 - 🛡️ **Added comprehensive firewall rules** with UFW configuration
 - 🔐 **Enhanced SSL/TLS configuration** with modern cipher suites
 - 📊 **Improved security monitoring** with automated threat detection
 - 🔄 **Secure backup encryption** with GPG and cloud storage integration
 - 👤 **Hardened user access controls** with SSH key enforcement
+- 📱 **Multi-platform security** with proper public client flow configuration
+- 🔧 **Enhanced OAuth security** with platform-specific redirect URI validation
 
 ## [2.1.0] - 2023-12-10
 

@@ -173,9 +173,10 @@ collect_customer_and_domain_config() {
 
 # Function to show detailed Azure AD setup instructions
 show_azure_setup_instructions() {
-    print_header "=== Azure AD Application Setup Instructions ==="
+    print_header "=== Universal Azure AD Application Setup Instructions ==="
     echo
-    echo "Now we'll set up Azure AD integration. Follow these step-by-step instructions:"
+    echo "This setup configures Azure AD for ALL NetBird client types:"
+    echo "🌐 Web Dashboard  💻 Desktop Clients  📱 Mobile Apps  🔧 CLI Tools"
     echo
     print_highlight "📋 Step 1: Access Azure Portal"
     echo "1. Go to https://portal.azure.com"
@@ -185,15 +186,40 @@ show_azure_setup_instructions() {
     print_highlight "📋 Step 2: Basic Application Settings"
     echo "1. Name: NetBird Self-Hosted (or any name you prefer)"
     echo "2. Supported account types: Accounts in this organizational directory only"
-    echo "3. Redirect URI (Web): https://$NETBIRD_DOMAIN/auth"
+    echo "3. Redirect URI: Leave empty for now (we'll configure multiple platforms)"
     echo "4. Click 'Register'"
     echo
-    print_highlight "📋 Step 3: Configure Additional Redirect URIs"
-    echo "After registration, go to Authentication section and add:"
-    echo "• https://$NETBIRD_DOMAIN/auth"
-    echo "• https://$NETBIRD_DOMAIN/silent-auth"
+    print_highlight "📋 Step 3: Configure Web Dashboard Platform (Single Page Application)"
+    echo "⚠️  CRITICAL: First platform for web dashboard authentication"
+    echo "1. Go to Authentication section"
+    echo "2. Under 'Platform configurations', if you have a 'Web' platform, REMOVE it"
+    echo "3. Click '+ Add a platform' → 'Single-page application'"
+    echo "4. Add these Redirect URIs for web dashboard:"
+    echo "   • https://$NETBIRD_DOMAIN/auth"
+    echo "   • https://$NETBIRD_DOMAIN/silent-auth"
+    echo "5. Under 'Implicit grant and hybrid flows':"
+    echo "   • ✅ Check 'Access tokens'"
+    echo "   • ✅ Check 'ID tokens'"
+    echo "6. Click 'Configure'"
     echo
-    print_highlight "📋 Step 4: API Permissions"
+    print_highlight "📋 Step 4: Configure Desktop & Mobile Clients Platform"
+    echo "⚠️  REQUIRED: Essential for NetBird desktop and mobile apps"
+    echo "1. Still in Authentication section, click '+ Add a platform' again"
+    echo "2. Select 'Mobile and desktop applications'"
+    echo "3. Add these Redirect URIs for client applications:"
+    echo "   • http://localhost:53000"
+    echo "   • http://localhost:54000"
+    echo "   • urn:ietf:wg:oauth:2.0:oob"
+    echo "4. Click 'Configure'"
+    echo
+    print_highlight "📋 Step 5: Configure Advanced Settings"
+    echo "⚠️  REQUIRED: Enable public client flows for all platforms"
+    echo "1. Still in Authentication section, scroll to 'Advanced settings'"
+    echo "2. Set 'Allow public client flows' to 'Yes'"
+    echo "3. Set 'Treat application as a public client' to 'Yes'"
+    echo "4. Click 'Save'"
+    echo
+    print_highlight "📋 Step 6: API Permissions"
     echo "In API permissions section, add these permissions:"
     echo "• Microsoft Graph > User.Read (delegated) - usually already present"
     echo "• Microsoft Graph > User.Read.All (delegated) - REQUIRED"
@@ -201,24 +227,9 @@ show_azure_setup_instructions() {
     echo "• Click 'Grant admin consent for [organization]' - MANDATORY"
     echo "• Verify all permissions show 'Granted for [organization]'"
     echo
-    print_highlight "📋 Step 5: Configure as Single Page Application (IMPORTANT!)"
-    echo "⚠️  CRITICAL: Configure as SPA for OAuth security"
-    echo "1. Go to Authentication section"
-    echo "2. Under 'Platform configurations', if you have a 'Web' platform, REMOVE it"
-    echo "3. Click '+ Add a platform' → 'Single-page application'"
-    echo "4. Add these Redirect URIs:"
-    echo "   • https://$NETBIRD_DOMAIN/auth"
-    echo "   • https://$NETBIRD_DOMAIN/silent-auth"
-    echo "5. Under 'Implicit grant and hybrid flows':"
-    echo "   • ✅ Check 'Access tokens'"
-    echo "   • ✅ Check 'ID tokens'"
-    echo "6. Under 'Advanced settings':"
-    echo "   • Set 'Allow public client flows' to 'Yes'"
-    echo "7. Click 'Save'"
-    echo
-    print_highlight "📋 Step 6: DO NOT CREATE CLIENT SECRET"
-    echo "⚠️  IMPORTANT: For SPA authentication, do NOT create a client secret!"
-    echo "• Single Page Applications use PKCE (Proof Key for Code Exchange)"
+    print_highlight "📋 Step 7: DO NOT CREATE CLIENT SECRET"
+    echo "⚠️  IMPORTANT: For universal public client authentication, do NOT create a client secret!"
+    echo "• All NetBird clients use PKCE (Proof Key for Code Exchange)"
     echo "• Client secrets are not needed and cause authentication conflicts"
     echo "• If you already created one, that's okay - we'll configure it to not use it"
     echo
@@ -240,11 +251,18 @@ show_azure_setup_instructions() {
     echo "• ✅ Allow public client flows: Yes"
     echo "• ✅ Access tokens and ID tokens enabled"
     echo
-    print_highlight "📋 Step 7: REQUIRED - Expose an API (Fix for AADSTS65005)"
+    print_highlight "📋 Step 8: Collect Required Information"
+    echo "From the Overview page, copy these values:"
+    echo "• Application (client) ID"
+    echo "• Directory (tenant) ID"
+    echo "• Object ID"
+    echo "• NO CLIENT SECRET NEEDED for public client configuration"
+    echo
+    print_highlight "📋 Step 9: REQUIRED - Expose an API (Fix for AADSTS65005)"
     echo "⚠️  IMPORTANT: This step is required to prevent authentication errors!"
     echo "1. Go to 'Expose an API' in your Azure AD app"
     echo "2. Click 'Set' next to Application ID URI"
-    echo "3. Accept the default: api://$AZURE_CLIENT_ID"
+    echo "3. Accept the default: api://[your-client-id]"
     echo "4. Click 'Add a scope'"
     echo "5. Scope name: api"
     echo "6. Who can consent: Admins only"
@@ -253,18 +271,37 @@ show_azure_setup_instructions() {
     echo "9. State: Enabled"
     echo "10. Click 'Add scope'"
     echo
-    print_highlight "📋 Step 8: Grant Admin Consent (Fix for AADSTS500011)"
+    print_highlight "📋 Step 10: Grant Admin Consent (Fix for AADSTS500011)"
     echo "⚠️  CRITICAL: Admin consent is required!"
     echo "1. Go back to 'API permissions'"
     echo "2. Click 'Grant admin consent for [your organization]'"
     echo "3. Confirm by clicking 'Yes'"
     echo "4. Ensure all permissions show 'Granted for [organization]'"
     echo
-    echo "════════════════════════════════════════════════════════════════"
+    print_highlight "📋 Step 11: Final Verification Checklist"
+    echo "⚠️  VERIFY ALL PLATFORMS ARE CONFIGURED:"
+    echo "• ✅ Single-page application platform with web redirect URIs"
+    echo "• ✅ Mobile and desktop applications platform with client redirect URIs"
+    echo "• ✅ Application ID URI: api://[your-client-id]"
+    echo "• ✅ API scope 'api' exists and is enabled"
+    echo "• ✅ Admin consent granted for ALL permissions"
+    echo "• ✅ All permissions show 'Granted for [organization]'"
+    echo "• ✅ Allow public client flows: Yes"
+    echo "• ✅ Treat application as a public client: Yes"
+    echo "• ✅ Access tokens and ID tokens enabled"
+    echo
+    echo "═══════════════════════════════════════════════════════════════════════"
+    print_success "🎯 Platform Configuration Summary:"
+    echo "🌐 Web Dashboard: https://$NETBIRD_DOMAIN/auth, /silent-auth"
+    echo "💻 Desktop Apps: http://localhost:53000, http://localhost:54000"
+    echo "📱 Mobile Apps: http://localhost:53000, http://localhost:54000"
+    echo "🔧 CLI Tools: urn:ietf:wg:oauth:2.0:oob"
+    echo "═══════════════════════════════════════════════════════════════════════"
     echo
     print_warning "🔗 Useful Links:"
     echo "• Azure Portal: https://portal.azure.com"
     echo "• NetBird Azure AD Guide: https://docs.netbird.io/selfhosted/identity-providers#azure-ad-microsoft-entra-id"
+    echo "• Detailed Setup Guide: Check AZURE-AD-SPA-SETUP.md in this package"
     echo
     print_success "✅ Once you have all the information, continue below!"
     echo
@@ -284,20 +321,23 @@ collect_azure_config() {
     echo
 
     # Ask about SPA configuration (no client secret needed)
-    print_warning "⚠️  IMPORTANT: For SPA OAuth configuration, no client secret is needed"
+    print_warning "⚠️  IMPORTANT: For universal public client configuration, no client secret is needed"
     echo "This deployment uses PKCE (Proof Key for Code Exchange) for enhanced security."
-    echo "If you configured your Azure AD app as a Single Page Application, press Enter to continue."
-    echo "If you accidentally created a client secret, that's okay - we'll configure it to not use it."
+    echo "Verify you configured BOTH platforms:"
+    echo "1. Single-page application (for web dashboard)"
+    echo "2. Mobile and desktop applications (for NetBird clients)"
     echo
-    read -p "Did you configure your Azure AD app as Single Page Application? (Y/n): " -n 1 -r
+    read -p "Did you configure BOTH platform types as instructed above? (Y/n): " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Nn]$ ]]; then
-        print_error "Please go back and configure your Azure AD app as Single Page Application"
-        print_status "Remove any 'Web' platform and add 'Single-page application' instead"
+        print_error "Please go back and configure your Azure AD app with BOTH platform types:"
+        print_status "1. Single-page application platform for web dashboard"
+        print_status "2. Mobile and desktop applications platform for NetBird clients"
+        print_status "Both are required for complete NetBird functionality!"
         exit 1
     fi
-    print_success "SPA configuration confirmed - proceeding with PKCE authentication"
-    AZURE_CLIENT_SECRET=""  # Empty for SPA configuration
+    print_success "Universal platform configuration confirmed - proceeding with PKCE authentication"
+    AZURE_CLIENT_SECRET=""  # Empty for public client configuration
     echo
 
     read -p "Azure AD Directory (tenant) ID: " AZURE_TENANT_ID
@@ -326,12 +366,17 @@ collect_azure_config() {
     echo "Tenant ID: $AZURE_TENANT_ID"
     echo "Client ID: $AZURE_CLIENT_ID"
     echo "Object ID: $AZURE_OBJECT_ID"
-    echo "Authentication: SPA with PKCE (no client secret)"
+    echo "Authentication: Universal Public Client with PKCE (no client secret)"
     echo "Let's Encrypt Email: $LETSENCRYPT_EMAIL"
     echo
     echo "Azure AD Redirect URIs configured:"
-    echo "• https://$NETBIRD_DOMAIN/auth"
-    echo "• https://$NETBIRD_DOMAIN/silent-auth"
+    echo "🌐 Web Dashboard:"
+    echo "  • https://$NETBIRD_DOMAIN/auth"
+    echo "  • https://$NETBIRD_DOMAIN/silent-auth"
+    echo "💻📱 Desktop & Mobile Clients:"
+    echo "  • http://localhost:53000"
+    echo "  • http://localhost:54000"
+    echo "  • urn:ietf:wg:oauth:2.0:oob"
     echo
 
     read -p "Is this information correct? (Y/n): " -n 1 -r
@@ -870,14 +915,14 @@ EOF
     print_success "NetBird installation files prepared"
 }
 
-# Function to configure NetBird with Azure AD SPA authentication
+# Function to configure NetBird with Universal Azure AD authentication
 configure_netbird() {
-    print_header "=== Configuring NetBird with Azure AD SPA ==="
+    print_header "=== Configuring NetBird with Universal Azure AD ==="
     echo
 
     local server_ip=$(hcloud server describe "$SERVER_NAME" -o json | jq -r '.public_net.ipv4.ip')
 
-    print_status "Configuring NetBird with Azure AD SPA integration..."
+    print_status "Configuring NetBird with Universal Azure AD integration..."
 
     # Create the configuration script
     cat > /tmp/netbird-configure.sh << EOF
@@ -886,15 +931,15 @@ set -e
 
 cd /opt/netbird/netbird/infrastructure_files/
 
-echo "Configuring NetBird setup.env with Azure AD SPA..."
+echo "Configuring NetBird setup.env with Universal Azure AD..."
 
-# Create setup.env with Azure AD SPA configuration
+# Create setup.env with Universal Azure AD configuration
 cat > setup.env << 'CONFIG_EOF'
 # NetBird Domain Configuration
 NETBIRD_DOMAIN="$NETBIRD_DOMAIN"
 NETBIRD_LETSENCRYPT_EMAIL="$LETSENCRYPT_EMAIL"
 
-# Azure AD SPA Configuration (PKCE-based, no client secret)
+# Universal Azure AD Configuration (supports web, desktop, mobile clients)
 NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT="https://login.microsoftonline.com/$AZURE_TENANT_ID/v2.0/.well-known/openid-configuration"
 NETBIRD_USE_AUTH0=false
 NETBIRD_AUTH_CLIENT_ID="$AZURE_CLIENT_ID"
@@ -988,7 +1033,7 @@ EOF
         return 1
     fi
 
-    print_success "NetBird configured with Azure AD SPA authentication"
+    print_success "NetBird configured with Universal Azure AD authentication"
 }
 
 # Function to start NetBird services
@@ -1692,12 +1737,121 @@ show_summary() {
     echo "   • Check logs: ssh root@$server_ip '/root/netbird-management.sh logs | grep -i error'"
     echo
     echo "═══════════════════════════════════════════════════════════════"
+    echo "  📱 Client Configuration Instructions"
+    echo "═══════════════════════════════════════════════════════════════"
+    echo "Your Azure AD app is configured for ALL NetBird client types:"
+    echo
+    print_highlight "🌐 Web Dashboard Access:"
+    echo "1. Complete DNS configuration above first"
+    echo "2. Wait for SSL certificate (5-10 minutes)"
+    echo "3. Access: https://$NETBIRD_DOMAIN"
+    echo "4. Click 'Sign in with Microsoft'"
+    echo "5. Complete Azure AD authentication"
+    echo
+    print_highlight "💻 Desktop Client Configuration:"
+    echo "Download NetBird desktop clients:"
+    echo "• Windows: https://github.com/netbirdio/netbird/releases"
+    echo "• macOS: https://github.com/netbirdio/netbird/releases"
+    echo "• Linux: https://github.com/netbirdio/netbird/releases"
+    echo
+    echo "Desktop client settings:"
+    echo "• Management URL: https://$NETBIRD_DOMAIN"
+    echo "• Admin URL: https://$NETBIRD_DOMAIN"
+    echo "• SSO Provider: Azure AD / Microsoft Entra ID"
+    echo "• Client ID: $AZURE_CLIENT_ID"
+    echo "• Tenant ID: $AZURE_TENANT_ID"
+    echo "• Authority: https://login.microsoftonline.com/$AZURE_TENANT_ID/v2.0"
+    echo
+    echo "Desktop authentication flow:"
+    echo "1. Install and open NetBird desktop client"
+    echo "2. Enter Management URL: https://$NETBIRD_DOMAIN"
+    echo "3. Click 'Sign in with SSO'"
+    echo "4. Browser will open for Azure AD authentication"
+    echo "5. Complete login and return to desktop client"
+    echo
+    print_highlight "📱 Mobile App Configuration:"
+    echo "Download NetBird mobile apps:"
+    echo "• iOS: Search 'NetBird' in App Store"
+    echo "• Android: Search 'NetBird' in Google Play Store"
+    echo
+    echo "Mobile app settings:"
+    echo "• Management URL: https://$NETBIRD_DOMAIN"
+    echo "• SSO Provider: Azure AD / Microsoft Entra ID"
+    echo "• Client ID: $AZURE_CLIENT_ID"
+    echo "• Tenant ID: $AZURE_TENANT_ID"
+    echo
+    echo "Mobile authentication flow:"
+    echo "1. Install and open NetBird mobile app"
+    echo "2. Tap 'Configure manually' or 'Add server'"
+    echo "3. Enter Management URL: https://$NETBIRD_DOMAIN"
+    echo "4. Select 'Azure AD' as SSO provider"
+    echo "5. Enter Client ID and Tenant ID"
+    echo "6. Tap 'Sign in with SSO'"
+    echo "7. Complete authentication in in-app browser"
+    echo
+    print_highlight "🔧 CLI Tools Configuration:"
+    echo "Install NetBird CLI:"
+    echo "• Linux/macOS: curl -fsSL https://pkgs.netbird.io/install.sh | sh"
+    echo "• Windows: Download from GitHub releases"
+    echo
+    echo "CLI authentication:"
+    echo "netbird login --management-url https://$NETBIRD_DOMAIN \\"
+    echo "              --sso-provider azure \\"
+    echo "              --client-id $AZURE_CLIENT_ID \\"
+    echo "              --tenant-id $AZURE_TENANT_ID"
+    echo
+    print_highlight "🛠️ Advanced Client Configuration:"
+    echo "For custom integrations or advanced setups:"
+    echo
+    echo "OAuth Configuration:"
+    echo "• Authority: https://login.microsoftonline.com/$AZURE_TENANT_ID/v2.0"
+    echo "• Client ID: $AZURE_CLIENT_ID"
+    echo "• Audience: $AZURE_CLIENT_ID"
+    echo "• Scopes: openid profile email offline_access User.Read api://$AZURE_CLIENT_ID/api"
+    echo "• Token Endpoint: https://login.microsoftonline.com/$AZURE_TENANT_ID/oauth2/v2.0/token"
+    echo "• User ID Claim: oid"
+    echo "• Redirect URIs:"
+    echo "  - Web: https://$NETBIRD_DOMAIN/auth, https://$NETBIRD_DOMAIN/silent-auth"
+    echo "  - Desktop: http://localhost:53000, http://localhost:54000"
+    echo "  - CLI: urn:ietf:wg:oauth:2.0:oob"
+    echo
+    print_highlight "🔍 Client Troubleshooting:"
+    echo "Common client issues and solutions:"
+    echo
+    echo "1. Desktop client authentication fails:"
+    echo "   • Verify Management URL is correct"
+    echo "   • Check Azure AD redirect URIs include localhost ports"
+    echo "   • Ensure 'Allow public client flows' is enabled"
+    echo "   • Try clearing client cache/data"
+    echo
+    echo "2. Mobile app won't connect:"
+    echo "   • Verify SSL certificate is working on web dashboard first"
+    echo "   • Check mobile app has latest version"
+    echo "   • Ensure Azure AD mobile platform is configured"
+    echo "   • Try switching between WiFi and mobile data"
+    echo
+    echo "3. CLI authentication issues:"
+    echo "   • Check CLI version: netbird version"
+    echo "   • Verify Azure AD permissions are granted"
+    echo "   • Try device code flow if localhost redirect fails"
+    echo "   • Check network connectivity to management server"
+    echo
+    echo "4. All clients fail to authenticate:"
+    echo "   • Check web dashboard authentication first"
+    echo "   • Verify Azure AD admin consent is granted"
+    echo "   • Ensure API scope 'api' exists and is enabled"
+    echo "   • Check NetBird management server logs"
+    echo
+    echo "═══════════════════════════════════════════════════════════════"
 
     print_success "🎉 NetBird self-hosted deployment completed successfully!"
     echo
     print_warning "⚠️  IMPORTANT: Complete DNS configuration above before accessing the dashboard!"
     echo
     print_highlight "🌐 Your NetBird URL will be: https://$NETBIRD_DOMAIN"
+    echo
+    print_success "📱 All client types (web, desktop, mobile, CLI) are now configured!"
+    print_status "Refer to the client configuration instructions above for setup details."
 }
 
 # Function to run post-deployment checks
