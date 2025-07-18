@@ -1456,34 +1456,37 @@ echo "Applying nginx SPA routing fix..."
 
 echo "OAuth SPA and nginx fixes applied!"
 
-# Always ensure enhanced management script is uploaded
-print_status "Uploading enhanced management script..."
 
-# Try to upload the enhanced script using multiple methods
-enhanced_script_uploaded=false
+EOF
 
-# Method 1: Try SCP first
-if [ -f "$SCRIPT_DIR/netbird-management-enhanced.sh" ]; then
-    if scp -o StrictHostKeyChecking=no -o ConnectTimeout=30 "$SCRIPT_DIR/netbird-management-enhanced.sh" root@$server_ip:/root/netbird-management.sh 2>/dev/null; then
-        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@$server_ip "chmod +x /root/netbird-management.sh"
-        print_success "Enhanced management script uploaded via SCP"
-        enhanced_script_uploaded=true
-    else
-        print_status "SCP upload failed, trying SSH method..."
-        # Method 2: Upload via SSH pipe
-        if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@$server_ip "cat > /root/netbird-management.sh" < "$SCRIPT_DIR/netbird-management-enhanced.sh" && ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@$server_ip "chmod +x /root/netbird-management.sh"; then
-            print_success "Enhanced management script uploaded via SSH"
+    # Always ensure enhanced management script is uploaded BEFORE starting services
+    print_status "Uploading enhanced management script..."
+
+    # Try to upload the enhanced script using multiple methods
+    enhanced_script_uploaded=false
+
+    # Method 1: Try SCP first
+    if [ -f "$SCRIPT_DIR/netbird-management-enhanced.sh" ]; then
+        if scp -o StrictHostKeyChecking=no -o ConnectTimeout=30 "$SCRIPT_DIR/netbird-management-enhanced.sh" root@$server_ip:/root/netbird-management.sh 2>/dev/null; then
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@$server_ip "chmod +x /root/netbird-management.sh"
+            print_success "Enhanced management script uploaded via SCP"
             enhanced_script_uploaded=true
         else
-            print_warning "SSH upload also failed, will use embedded version"
+            print_status "SCP upload failed, trying SSH method..."
+            # Method 2: Upload via SSH pipe
+            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@$server_ip "cat > /root/netbird-management.sh" < "$SCRIPT_DIR/netbird-management-enhanced.sh" && ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@$server_ip "chmod +x /root/netbird-management.sh"; then
+                print_success "Enhanced management script uploaded via SSH"
+                enhanced_script_uploaded=true
+            else
+                print_warning "SSH upload also failed, will use embedded version"
+            fi
         fi
     fi
-fi
 
-# If enhanced script wasn't uploaded, use embedded version
-if [ "$enhanced_script_uploaded" = false ]; then
-    print_status "Using embedded enhanced management script as fallback"
-    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@$server_ip "cat > /root/netbird-management.sh" << 'ENHANCED_MGMT_EOF'
+    # If enhanced script wasn't uploaded, use embedded version
+    if [ "$enhanced_script_uploaded" = false ]; then
+        print_status "Using embedded enhanced management script as fallback"
+        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@$server_ip "cat > /root/netbird-management.sh" << 'ENHANCED_MGMT_EOF'
 #!/bin/bash
 # Enhanced NetBird Management Script with SSL Certificate Verification
 # Version: 2.1.0
@@ -1517,65 +1520,88 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Detect Docker Compose command
-if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
-    DOCKER_COMPOSE_CMD="docker compose"
-elif command -v docker-compose >/dev/null 2>&1; then
-    DOCKER_COMPOSE_CMD="docker-compose"
-elif command -v docker >/dev/null 2>&1; then
-    DOCKER_COMPOSE_CMD="docker compose"
-else
-    DOCKER_COMPOSE_CMD="docker-compose"
-fi
+print_header() {
+    echo -e "${PURPLE}=== $1 ===${NC}"
+}
 
-# Function to show service health
-show_health() {
-    print_status "NetBird Service Health Check"
-    echo "════════════════════════════════════════"
+# SSL Certificate check function
+check_ssl_certificate() {
+    local domain="$1"
+    local port="${2:-443}"
 
-    cd "$COMPOSE_DIR" || {
-        print_error "Cannot access compose directory: $COMPOSE_DIR"
+    print_status "Checking SSL certificate for $domain:$port..."
+
+    # Check if certificate is valid
+    if echo | openssl s_client -connect "$domain:$port" -servername "$domain" 2>/dev/null | openssl x509 -noout -dates 2>/dev/null; then
+        print_success "SSL certificate is valid for $domain"
+
+        # Show certificate details
+        echo | openssl s_client -connect "$domain:$port" -servername "$domain" 2>/dev/null | openssl x509 -noout -subject -issuer -dates 2>/dev/null
+        return 0
+    else
+        print_error "SSL certificate check failed for $domain"
         return 1
-    }
-
-    # Check service status
-    print_status "Docker Compose Services:"
-    $DOCKER_COMPOSE_CMD ps
-    echo
-
-    # Count running services
-    running_count=$($DOCKER_COMPOSE_CMD ps --filter status=running --quiet | wc -l)
-    total_count=$($DOCKER_COMPOSE_CMD ps --quiet | wc -l)
-
-    if [ "$running_count" -eq "$total_count" ] && [ "$running_count" -gt 0 ]; then
-        print_success "All services are running ($running_count/$total_count)"
-    else
-        print_warning "Some services may have issues ($running_count/$total_count running)"
-    fi
-
-    # Show recent errors
-    print_status "Recent Errors (last 10):"
-    recent_errors=$($DOCKER_COMPOSE_CMD logs --tail=100 2>/dev/null | grep -i "error\|fail\|exception" | tail -10)
-    if [ -n "$recent_errors" ]; then
-        echo "$recent_errors"
-    else
-        print_success "No recent errors found"
     fi
 }
 
-case "$1" in
+# Detect Docker Compose command
+detect_docker_compose() {
+    if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+        echo "docker compose"
+    elif command -v docker-compose >/dev/null 2>&1; then
+        echo "docker-compose"
+    else
+        echo "docker compose"  # Default fallback
+    fi
+}
+
+DOCKER_COMPOSE_CMD=$(detect_docker_compose)
+
+# Function to get service URLs from environment
+get_service_urls() {
+    if [ -f "$NETBIRD_CONFIG" ]; then
+        NETBIRD_DOMAIN=$(grep "NETBIRD_DOMAIN=" "$NETBIRD_CONFIG" | cut -d'=' -f2)
+        NETBIRD_MGMT_API_ENDPOINT=$(grep "NETBIRD_MGMT_API_ENDPOINT=" "$NETBIRD_CONFIG" | cut -d'=' -f2)
+        NETBIRD_MGMT_GRPC_API_ENDPOINT=$(grep "NETBIRD_MGMT_GRPC_API_ENDPOINT=" "$NETBIRD_CONFIG" | cut -d'=' -f2)
+    fi
+}
+
+# Main command handling
+case "${1:-}" in
     "status")
         cd "$COMPOSE_DIR" || exit 1
+        print_header "NetBird Service Status"
         $DOCKER_COMPOSE_CMD ps
         ;;
     "health")
-        show_health
+        cd "$COMPOSE_DIR" || exit 1
+        print_header "NetBird Health Check"
+
+        # Get service URLs
+        get_service_urls
+
+        # Check container status
+        print_status "Checking container status..."
+        $DOCKER_COMPOSE_CMD ps
+
+        # Check if services are responding
+        if [ -n "$NETBIRD_DOMAIN" ]; then
+            print_status "Checking SSL certificates..."
+            check_ssl_certificate "$NETBIRD_DOMAIN" 443
+            check_ssl_certificate "$NETBIRD_DOMAIN" 33073
+        fi
+
+        # Check logs for errors
+        print_status "Recent error logs:"
+        $DOCKER_COMPOSE_CMD logs --tail=10 | grep -i error || echo "No recent errors found"
         ;;
     "logs")
         cd "$COMPOSE_DIR" || exit 1
         if [ -n "$2" ]; then
+            print_header "Logs for service: $2"
             $DOCKER_COMPOSE_CMD logs -f "$2"
         else
+            print_header "All NetBird Service Logs"
             $DOCKER_COMPOSE_CMD logs -f
         fi
         ;;
@@ -1588,7 +1614,7 @@ case "$1" in
     "stop")
         cd "$COMPOSE_DIR" || exit 1
         print_status "Stopping NetBird services..."
-        $DOCKER_COMPOSE_CMD stop
+        $DOCKER_COMPOSE_CMD down
         print_success "Services stopped"
         ;;
     "start")
@@ -1622,10 +1648,9 @@ case "$1" in
 esac
 ENHANCED_MGMT_EOF
 
-    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@$server_ip "chmod +x /root/netbird-management.sh"
-    print_success "Enhanced management script embedded successfully"
-fi
-EOF
+        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@$server_ip "chmod +x /root/netbird-management.sh"
+        print_success "Enhanced management script embedded successfully"
+    fi
 
     # Execute startup script
     print_status "Starting NetBird services..."

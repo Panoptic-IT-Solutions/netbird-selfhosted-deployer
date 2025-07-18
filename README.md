@@ -20,29 +20,35 @@ A comprehensive deployment tool for setting up NetBird self-hosted infrastructur
 
 Before running this deployment tool, ensure you have:
 
-1. **Hetzner Cloud Account**
+1. **Operating System**
+   - **Linux/macOS**: Native bash support
+   - **Windows**: WSL, Git Bash, or Docker Desktop
+
+2. **Hetzner Cloud Account**
    - Active Hetzner Cloud account
    - API token with read/write permissions
    - Available server quota
 
-2. **Azure AD Tenant**
+3. **Azure AD Tenant**
    - Azure Active Directory tenant
    - Admin permissions to create app registrations
    - Domain for NetBird dashboard (e.g., `nb.yourdomain.com`)
 
-3. **Domain Configuration**
+4. **Domain Configuration**
    - Domain name pointing to your future server IP
    - DNS management access
 
 ## 🛠️ Quick Start
 
-### Option 1: One-Line Installation
+### Linux/macOS Deployment
+
+#### Option 1: One-Line Installation
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Panoptic-IT-Solutions/netbird-selfhosted-deployer/main/install.sh | bash
 ```
 
-### Option 2: Manual Installation
+#### Option 2: Manual Installation
 
 1. **Clone the repository:**
    ```bash
@@ -59,6 +65,57 @@ curl -fsSL https://raw.githubusercontent.com/Panoptic-IT-Solutions/netbird-selfh
    ```bash
    ./deploy-netbird-selfhosted.sh
    ```
+
+### Windows Deployment
+
+We provide multiple options for running NetBird deployment on Windows:
+
+#### Option 1: WSL (Recommended)
+
+1. **Install WSL if not already installed:**
+   ```powershell
+   wsl --install
+   ```
+
+2. **Use the PowerShell helper script:**
+   ```powershell
+   .\run-deployment-windows.ps1 -UseWSL
+   ```
+
+#### Option 2: Git Bash
+
+1. **Install Git for Windows** from [git-scm.com](https://git-scm.com/download/win)
+
+2. **Run with Git Bash:**
+   ```powershell
+   .\run-deployment-windows.ps1 -UseGitBash
+   ```
+
+#### Option 3: Docker Container
+
+1. **Install Docker Desktop** from [docker.com](https://www.docker.com/products/docker-desktop/)
+
+2. **Run using Docker:**
+   ```batch
+   run-deployment-windows.bat
+   ```
+   Or with PowerShell:
+   ```powershell
+   .\run-deployment-windows.ps1 -UseDocker
+   ```
+
+#### Option 4: Auto-Detect (Easiest)
+
+Let the script automatically choose the best available method:
+```powershell
+.\run-deployment-windows.ps1
+```
+
+The PowerShell script will:
+- Detect what's available on your system (WSL, Git Bash, Docker)
+- Install prerequisites automatically where possible
+- Guide you through the setup process
+- Handle the NetBird deployment seamlessly
 
 ## 📖 Setup Process
 
@@ -156,6 +213,7 @@ ssh nb2 '/root/netbird-management.sh test'      # Test connectivity
 
 ## 📚 Documentation
 
+- [Windows Deployment Guide](./WINDOWS-DEPLOYMENT.md) - Detailed Windows setup instructions
 - [Azure AD SPA Setup Guide](./AZURE-AD-SPA-SETUP.md) - Complete Azure AD configuration
 - [Troubleshooting Guide](./docs/TROUBLESHOOTING.md) - Common issues and solutions
 - [Advanced Configuration](./docs/ADVANCED-CONFIG.md) - Custom setups and modifications
