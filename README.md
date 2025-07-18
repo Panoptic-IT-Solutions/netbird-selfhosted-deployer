@@ -11,6 +11,8 @@ A comprehensive deployment tool for setting up NetBird self-hosted infrastructur
 - **Automated Infrastructure**: Complete Hetzner Cloud setup including servers, firewalls, and networking
 - **SSL Certificate Management**: Automatic Let's Encrypt certificate provisioning
 - **Nginx SPA Routing**: Fixed OAuth callback handling for Single Page Applications
+- **Enhanced Management Script**: Comprehensive server management with SSL and Azure AD monitoring
+- **SSH Alias Management**: Automatic company-named SSH aliases for easy server access
 - **Security Hardened**: SSH key authentication, firewall rules, and security updates
 - **One-Click Deployment**: Fully automated setup process
 
@@ -90,6 +92,67 @@ The script supports various configuration options:
 - **Location**: Default `nbg1` (Nuremberg, Germany)
 - **Image**: Default `ubuntu-24.04`
 - **Custom Domain**: Your NetBird dashboard domain
+- **IP Assignment**: Automatic or use existing Primary IPs
+
+## 🖥️ Server Management
+
+### SSH Aliases
+The deployment script automatically creates company-named SSH aliases for easy server access:
+
+```bash
+# Connect using short alias (e.g., for "NB2")
+ssh nb2
+
+# Run management commands using alias
+ssh nb2 '/root/netbird-management.sh status'
+ssh nb2 '/root/netbird-management.sh health'
+```
+
+### IP Address Management
+Control IP assignment for consistent DNS and network configuration:
+
+```bash
+# List available Primary IPs
+./deploy-netbird-selfhosted.sh list-ips
+
+# Use specific Primary IP for deployment
+./deploy-netbird-selfhosted.sh --customer "Acme Corp" --ip my-static-ip
+
+# Create a new Primary IP first
+hcloud primary-ip create --type ipv4 --location nbg1 --name my-ip --assignee-type server
+```
+
+**Primary IP Benefits:**
+- IP persists if server is recreated
+- Stable DNS records (no IP changes)
+- Can be transferred between servers
+- Same cost as regular IP (€0.50/month)
+
+### List Saved Servers
+View all deployed NetBird servers:
+
+```bash
+./deploy-netbird-selfhosted.sh list-servers
+```
+
+### Enhanced Management Script
+Each server includes a comprehensive management script with these features:
+
+- **Health Monitoring**: Complete system health checks
+- **SSL Certificate Management**: Certificate status and renewal monitoring
+- **Azure AD Integration Checks**: Authentication error detection and fixes
+- **Service Management**: Start, stop, restart, and update services
+- **Backup Management**: Configuration backup and restore
+- **Connectivity Testing**: Domain and network connectivity verification
+
+```bash
+# Available management commands (using short alias or IP)
+ssh nb2 '/root/netbird-management.sh health'     # Complete health check
+ssh nb2 '/root/netbird-management.sh ssl'       # Check SSL certificates
+ssh nb2 '/root/netbird-management.sh azure-fix' # Azure AD troubleshooting
+ssh nb2 '/root/netbird-management.sh backup'    # Backup configuration
+ssh nb2 '/root/netbird-management.sh test'      # Test connectivity
+```
 
 ## 📚 Documentation
 
@@ -112,11 +175,22 @@ This version addresses critical issues found in standard NetBird deployments:
 - **SPA routing** problems with OAuth callbacks
 - **Incorrect try_files directive**
 
+### New Management Features ✅
+- **Enhanced Management Script**: Comprehensive server monitoring and management
+- **SSH Alias System**: Short, practical aliases for easy server access (e.g., `ssh nb2`)
+- **Custom IP Assignment**: Use existing Primary IPs for stable network configuration
+- **SSL Certificate Monitoring**: Automatic certificate status checks and renewal warnings
+- **Azure AD Integration Monitoring**: Real-time authentication error detection
+- **Backup Management**: Automated configuration backup and restore capabilities
+
 ### Key Technical Improvements
 - Proper Azure AD SPA configuration (PKCE-only)
 - Fixed nginx configuration for SPA routing
 - Enhanced error handling and logging
 - Comprehensive setup validation
+- Automatic SSH known hosts and alias management with short, practical aliases
+- Custom IP assignment using Hetzner Primary IPs
+- Integrated server management tools
 
 ## 🏗️ Architecture
 
@@ -138,6 +212,8 @@ This version addresses critical issues found in standard NetBird deployments:
 - **Firewall Rules**: Only necessary ports exposed
 - **SSL/TLS Encryption**: Automatic Let's Encrypt certificates
 - **Security Updates**: Automatic system updates enabled
+- **SSH Key Management**: Automatic known hosts and short alias management
+- **IP Management**: Support for custom Primary IP assignment
 
 ## 🐛 Troubleshooting
 

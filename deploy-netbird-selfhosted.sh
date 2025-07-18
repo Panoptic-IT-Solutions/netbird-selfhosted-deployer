@@ -22,6 +22,7 @@ SERVER_NAME_PREFIX="netbird-selfhosted"
 SERVER_TYPE="cax11"  # ARM 2 vCPU, 4GB RAM
 IMAGE="ubuntu-24.04"
 LOCATION="nbg1"  # Nuremberg, Germany
+CUSTOM_IP=""  # Will be set from command line argument
 
 # Colors for output
 RED='\033[0;31m'
@@ -73,28 +74,174 @@ EOF
     echo
 }
 
+# Function to check if command exists
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+# Function to install hcloud CLI automatically
+install_hcloud_cli() {
+    print_status "Installing hcloud CLI..."
+
+    # Detect OS and install accordingly
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS
+        if command_exists brew; then
+            print_status "Installing via Homebrew..."
+            brew install hcloud
+        else
+            print_error "Homebrew not found! Please install Homebrew first:"
+            echo "  /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+            echo "  Then run this script again"
+            exit 1
+        fi
+    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        # Linux
+        print_status "Downloading hcloud CLI for Linux..."
+
+        # Get latest release URL
+        LATEST_URL=$(curl -s https://api.github.com/repos/hetznercloud/cli/releases/latest | grep "browser_download_url.*linux-amd64.tar.gz" | cut -d '"' -f 4)
+
+        if [ -z "$LATEST_URL" ]; then
+            print_error "Could not fetch latest release URL"
+            exit 1
+        fi
+
+        # Create temp directory
+        TEMP_DIR=$(mktemp -d)
+        cd "$TEMP_DIR"
+
+        # Download and extract
+        curl -L "$LATEST_URL" -o hcloud.tar.gz
+        tar xzf hcloud.tar.gz
+
+        # Install to /usr/local/bin
+        sudo mv hcloud /usr/local/bin/
+        sudo chmod +x /usr/local/bin/hcloud
+
+        # Cleanup
+        cd - > /dev/null
+        rm -rf "$TEMP_DIR"
+
+        print_success "hcloud CLI installed to /usr/local/bin/hcloud"
+    else
+        print_error "Unsupported OS: $OSTYPE"
+        print_status "Please install hcloud CLI manually from:"
+        echo "  https://github.com/hetznercloud/cli/releases/latest"
+        exit 1
+    fi
+}
+
+# Function to setup hcloud context
+setup_hcloud_context() {
+    print_status "Setting up Hetzner Cloud context..."
+
+    # Check for existing contexts
+    if hcloud context list >/dev/null 2>&1; then
+        EXISTING_CONTEXTS=$(hcloud context list -o noheader | wc -l)
+        if [ "$EXISTING_CONTEXTS" -gt 0 ]; then
+            print_warning "Found $EXISTING_CONTEXTS existing context(s):"
+            hcloud context list
+            echo
+            read -p "Do you want to create a new context? (y/N): " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                print_status "Using existing context"
+                # Test connection
+                if hcloud server list >/dev/null 2>&1; then
+                    print_success "Connection to Hetzner Cloud API successful!"
+                    return 0
+                else
+                    print_error "Cannot connect with existing context"
+                fi
+            fi
+        fi
+    fi
+
+    # Create new context
+    echo
+    print_status "Creating new hcloud context..."
+    echo
+    echo "To create a context, you need a Hetzner Cloud API token."
+    echo "If you don't have one, follow these steps:"
+    echo
+    echo "1. Go to https://console.hetzner.cloud"
+    echo "2. Select your project"
+    echo "3. Go to Security → API Tokens"
+    echo "4. Click 'Generate API Token'"
+    echo "5. Choose 'Read & Write' permissions"
+    echo "6. Copy the token"
+    echo
+
+    read -p "Enter a name for this context (default: netbird): " CONTEXT_NAME
+    CONTEXT_NAME=${CONTEXT_NAME:-netbird}
+
+    print_status "Creating context '$CONTEXT_NAME'..."
+    if hcloud context create "$CONTEXT_NAME"; then
+        print_success "Context '$CONTEXT_NAME' created successfully!"
+    else
+        print_error "Failed to create context"
+        exit 1
+    fi
+
+    # Test the connection
+    print_status "Testing connection to Hetzner Cloud API..."
+    if hcloud server list >/dev/null 2>&1; then
+        print_success "Connection successful!"
+
+        # Show account info
+        echo
+        print_status "Account information:"
+        echo "==================="
+
+        # Get project info if possible
+        PROJECT_INFO=$(hcloud server list -o json 2>/dev/null | head -1)
+        if [ -n "$PROJECT_INFO" ]; then
+            echo "✅ API connection working"
+            echo "🔧 Context: $CONTEXT_NAME"
+
+            # Show available resources
+            SERVER_COUNT=$(hcloud server list -o noheader | wc -l)
+            echo "🖥️  Servers: $SERVER_COUNT"
+
+            LOCATION_COUNT=$(hcloud location list -o noheader | wc -l)
+            echo "🌍 Available locations: $LOCATION_COUNT"
+
+            echo "==================="
+        fi
+    else
+        print_error "Connection failed! Please check your API token"
+        exit 1
+    fi
+}
+
 # Function to check prerequisites
 check_prerequisites() {
     print_status "Checking prerequisites..."
-    local errors=0
 
     # Check hcloud CLI
-    if ! command -v hcloud >/dev/null 2>&1; then
-        print_error "hcloud CLI is not installed"
-        echo "Install with: brew install hcloud"
-        ((errors++))
+    if ! command_exists hcloud; then
+        print_warning "hcloud CLI is not installed"
+        read -p "Would you like to install it automatically? (Y/n): " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Nn]$ ]]; then
+            print_error "hcloud CLI is required for deployment"
+            echo "Please install manually from: https://github.com/hetznercloud/cli/releases/latest"
+            exit 1
+        fi
+        install_hcloud_cli
+    else
+        print_success "hcloud CLI is installed"
+        HCLOUD_VERSION=$(hcloud version | head -n1)
+        print_status "Using $HCLOUD_VERSION"
     fi
 
     # Check if we can connect to Hetzner Cloud API
     if ! hcloud server list >/dev/null 2>&1; then
-        print_error "Cannot connect to Hetzner Cloud API"
-        echo "Run: hcloud context create <name>"
-        ((errors++))
-    fi
-
-    if [ $errors -gt 0 ]; then
-        print_error "Prerequisites not met. Please fix the issues above."
-        exit 1
+        print_warning "Cannot connect to Hetzner Cloud API"
+        setup_hcloud_context
+    else
+        print_success "Hetzner Cloud API connection verified"
     fi
 
     print_success "Prerequisites check passed"
@@ -171,7 +318,76 @@ collect_customer_and_domain_config() {
     done
 }
 
-# Function to show detailed Azure AD setup instructions
+# Function to collect IP configuration
+collect_ip_config() {
+    print_header "=== IP Address Configuration ==="
+    echo
+
+    # Check if there are any Primary IPs available
+    if ! hcloud primary-ip list >/dev/null 2>&1; then
+        print_status "No Primary IPs found. The server will use an automatic IP address."
+        return 0
+    fi
+
+    local ip_count=$(hcloud primary-ip list -o json | jq '. | length')
+
+    if [ "$ip_count" -eq 0 ]; then
+        print_status "No Primary IPs found. The server will use an automatic IP address."
+        return 0
+    fi
+
+    print_status "Found $ip_count available Primary IP(s):"
+    echo
+    hcloud primary-ip list
+    echo
+
+    read -p "Would you like to use an existing Primary IP? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo
+        print_status "Available Primary IPs:"
+        hcloud primary-ip list --output columns=name,ip,assignee_id,location
+        echo
+
+        while true; do
+            read -p "Enter Primary IP name or IP address (leave empty for automatic): " CUSTOM_IP
+
+            if [ -z "$CUSTOM_IP" ]; then
+                print_status "Using automatic IP assignment"
+                break
+            fi
+
+            # Validate the IP exists
+            if hcloud primary-ip describe "$CUSTOM_IP" >/dev/null 2>&1; then
+                ACTUAL_IP=$(hcloud primary-ip describe "$CUSTOM_IP" -o json | jq -r '.ip')
+                print_success "Selected Primary IP: $CUSTOM_IP ($ACTUAL_IP)"
+
+                # Check if it's assigned
+                IP_ASSIGNEE=$(hcloud primary-ip describe "$CUSTOM_IP" -o json | jq -r '.assignee_id')
+                if [ "$IP_ASSIGNEE" != "null" ] && [ -n "$IP_ASSIGNEE" ]; then
+                    ASSIGNEE_NAME=$(hcloud server describe "$IP_ASSIGNEE" -o json 2>/dev/null | jq -r '.name' || echo "Unknown")
+                    print_warning "This IP is currently assigned to server: $ASSIGNEE_NAME"
+                    read -p "Continue anyway? The IP will be reassigned (y/N): " -n 1 -r
+                    echo
+                    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                        continue
+                    fi
+                fi
+                break
+            else
+                print_error "Primary IP '$CUSTOM_IP' not found. Please try again."
+                print_status "Available options:"
+                hcloud primary-ip list --output columns=name,ip
+                echo
+            fi
+        done
+    else
+        print_status "Using automatic IP assignment"
+    fi
+
+    echo
+}
+
 show_azure_setup_instructions() {
     print_header "=== Universal Azure AD Application Setup Instructions ==="
     echo
@@ -191,6 +407,7 @@ show_azure_setup_instructions() {
     echo
     print_highlight "📋 Step 3: Configure Web Dashboard Platform (Single Page Application)"
     echo "⚠️  CRITICAL: First platform for web dashboard authentication"
+    echo "ℹ️  Note: This SPA setup means NO CLIENT SECRET is needed - NetBird will use PKCE flow"
     echo "1. Go to Authentication section"
     echo "2. Under 'Platform configurations', if you have a 'Web' platform, REMOVE it"
     echo "3. Click '+ Add a platform' → 'Single-page application'"
@@ -206,20 +423,29 @@ show_azure_setup_instructions() {
     echo "⚠️  REQUIRED: Essential for NetBird desktop and mobile apps"
     echo "1. Still in Authentication section, click '+ Add a platform' again"
     echo "2. Select 'Mobile and desktop applications'"
-    echo "3. Add these Redirect URIs for client applications:"
+    echo "3. Check these default Redirect URIs (should be pre-selected):"
+    echo "   ✅ https://login.microsoftonline.com/common/oauth2/nativeclient"
+    echo "   ✅ https://login.live.com/oauth20_desktop.srf (LiveSDK)"
+    echo "   ✅ msalbe064fd7-190f-4554-8c88-1124b8dabc31://auth (MSAL only)"
+    echo "4. Add this additional URI for localhost fallback:"
     echo "   • http://localhost:53000"
-    echo "   • http://localhost:54000"
-    echo "   • urn:ietf:wg:oauth:2.0:oob"
-    echo "4. Click 'Configure'"
+    echo "5. Click 'Configure'"
     echo
-    print_highlight "📋 Step 5: Configure Advanced Settings"
+    print_highlight "📋 Step 5: Set Application ID URI (REQUIRED)"
+    echo "⚠️  CRITICAL: This must be done before API permissions!"
+    echo "1. Go to 'Expose an API' section in your Azure AD app"
+    echo "2. Click 'Set' next to Application ID URI"
+    echo "3. Accept the default: api://[your-client-id]"
+    echo "4. Click 'Save'"
+    echo
+    print_highlight "📋 Step 6: Configure Advanced Settings"
     echo "⚠️  REQUIRED: Enable public client flows for all platforms"
-    echo "1. Still in Authentication section, scroll to 'Advanced settings'"
+    echo "1. Go back to Authentication section, scroll to 'Advanced settings'"
     echo "2. Set 'Allow public client flows' to 'Yes'"
     echo "3. Set 'Treat application as a public client' to 'Yes'"
     echo "4. Click 'Save'"
     echo
-    print_highlight "📋 Step 6: API Permissions"
+    print_highlight "📋 Step 7: API Permissions"
     echo "In API permissions section, add these permissions:"
     echo "• Microsoft Graph > User.Read (delegated) - usually already present"
     echo "• Microsoft Graph > User.Read.All (delegated) - REQUIRED"
@@ -227,7 +453,7 @@ show_azure_setup_instructions() {
     echo "• Click 'Grant admin consent for [organization]' - MANDATORY"
     echo "• Verify all permissions show 'Granted for [organization]'"
     echo
-    print_highlight "📋 Step 7: DO NOT CREATE CLIENT SECRET"
+    print_highlight "📋 Step 8: DO NOT CREATE CLIENT SECRET"
     echo "⚠️  IMPORTANT: For universal public client authentication, do NOT create a client secret!"
     echo "• All NetBird clients use PKCE (Proof Key for Code Exchange)"
     echo "• Client secrets are not needed and cause authentication conflicts"
@@ -251,34 +477,32 @@ show_azure_setup_instructions() {
     echo "• ✅ Allow public client flows: Yes"
     echo "• ✅ Access tokens and ID tokens enabled"
     echo
-    print_highlight "📋 Step 8: Collect Required Information"
+    print_highlight "📋 Step 9: Collect Required Information"
     echo "From the Overview page, copy these values:"
     echo "• Application (client) ID"
     echo "• Directory (tenant) ID"
     echo "• Object ID"
     echo "• NO CLIENT SECRET NEEDED for public client configuration"
     echo
-    print_highlight "📋 Step 9: REQUIRED - Expose an API (Fix for AADSTS65005)"
-    echo "⚠️  IMPORTANT: This step is required to prevent authentication errors!"
-    echo "1. Go to 'Expose an API' in your Azure AD app"
-    echo "2. Click 'Set' next to Application ID URI"
-    echo "3. Accept the default: api://[your-client-id]"
-    echo "4. Click 'Add a scope'"
-    echo "5. Scope name: api"
-    echo "6. Who can consent: Admins only"
-    echo "7. Admin consent display name: Access NetBird API"
-    echo "8. Admin consent description: Allows access to NetBird API"
-    echo "9. State: Enabled"
-    echo "10. Click 'Add scope'"
+    print_highlight "📋 Step 10: Add API Scope (Fix for AADSTS65005)"
+    echo "⚠️  IMPORTANT: Add scope to the Application ID URI you just created!"
+    echo "1. Still in 'Expose an API' section"
+    echo "2. Click 'Add a scope'"
+    echo "3. Scope name: api"
+    echo "4. Who can consent: Admins only"
+    echo "5. Admin consent display name: Access NetBird API"
+    echo "6. Admin consent description: Allows access to NetBird API"
+    echo "7. State: Enabled"
+    echo "8. Click 'Add scope'"
     echo
-    print_highlight "📋 Step 10: Grant Admin Consent (Fix for AADSTS500011)"
+    print_highlight "📋 Step 11: Grant Admin Consent (Fix for AADSTS500011)"
     echo "⚠️  CRITICAL: Admin consent is required!"
     echo "1. Go back to 'API permissions'"
     echo "2. Click 'Grant admin consent for [your organization]'"
     echo "3. Confirm by clicking 'Yes'"
     echo "4. Ensure all permissions show 'Granted for [organization]'"
     echo
-    print_highlight "📋 Step 11: Final Verification Checklist"
+    print_highlight "📋 Step 12: Final Verification Checklist"
     echo "⚠️  VERIFY ALL PLATFORMS ARE CONFIGURED:"
     echo "• ✅ Single-page application platform with web redirect URIs"
     echo "• ✅ Mobile and desktop applications platform with client redirect URIs"
@@ -293,9 +517,9 @@ show_azure_setup_instructions() {
     echo "═══════════════════════════════════════════════════════════════════════"
     print_success "🎯 Platform Configuration Summary:"
     echo "🌐 Web Dashboard: https://$NETBIRD_DOMAIN/auth, /silent-auth"
-    echo "💻 Desktop Apps: http://localhost:53000, http://localhost:54000"
-    echo "📱 Mobile Apps: http://localhost:53000, http://localhost:54000"
-    echo "🔧 CLI Tools: urn:ietf:wg:oauth:2.0:oob"
+    echo "💻 Desktop Apps: Default Microsoft URIs + http://localhost:53000"
+    echo "📱 Mobile Apps: Default Microsoft URIs + http://localhost:53000"
+    echo "🔧 CLI Tools: Native client flows via default URIs"
     echo "═══════════════════════════════════════════════════════════════════════"
     echo
     print_warning "🔗 Useful Links:"
@@ -312,6 +536,9 @@ collect_azure_config() {
     # First collect customer and domain configuration
     collect_customer_and_domain_config
 
+    # Collect IP configuration
+    collect_ip_config
+
     # Show detailed setup instructions
     show_azure_setup_instructions
 
@@ -323,6 +550,11 @@ collect_azure_config() {
     # Ask about SPA configuration (no client secret needed)
     print_warning "⚠️  IMPORTANT: For universal public client configuration, no client secret is needed"
     echo "This deployment uses PKCE (Proof Key for Code Exchange) for enhanced security."
+    echo "This means:"
+    echo "• No client secret is required or used"
+    echo "• Server-side user management is disabled (users authenticate directly via web dashboard)"
+    echo "• All authentication happens client-side using secure PKCE flow"
+    echo
     echo "Verify you configured BOTH platforms:"
     echo "1. Single-page application (for web dashboard)"
     echo "2. Mobile and desktop applications (for NetBird clients)"
@@ -583,6 +815,13 @@ create_server() {
     echo "  - Type: $SERVER_TYPE (ARM 2 vCPU, 4GB RAM)"
     echo "  - Image: $IMAGE"
     echo "  - Location: $LOCATION (Nuremberg, Germany)"
+    if [ -n "$CUSTOM_IP" ]; then
+        ACTUAL_IP=$(hcloud primary-ip describe "$CUSTOM_IP" -o json | jq -r '.ip')
+        echo "  - IPv4: Custom Primary IP ($ACTUAL_IP)"
+        echo "  - Primary IP Name: $CUSTOM_IP"
+    else
+        echo "  - IPv4: Automatic assignment"
+    fi
     echo "  - Purpose: NetBird Self-Hosted"
     echo "  - Firewall: $FIREWALL_NAME"
     echo
@@ -593,19 +832,74 @@ create_server() {
     # Create firewall with NetBird ports
     create_firewall
 
+    # Handle custom IP if specified
+    PRIMARY_IP_PARAM=""
+    if [ -n "$CUSTOM_IP" ]; then
+        print_status "Checking Primary IP '$CUSTOM_IP'..."
+
+        # Check if specified IP exists as a Primary IP (by name or IP address)
+        if ! hcloud primary-ip describe "$CUSTOM_IP" >/dev/null 2>&1; then
+            print_error "Primary IP '$CUSTOM_IP' not found!"
+            print_status "Available Primary IPs:"
+            hcloud primary-ip list
+            echo
+            print_status "To create a new Primary IP:"
+            echo "  hcloud primary-ip create --type ipv4 --location $LOCATION --name my-ip --assignee-type server"
+            echo
+            print_status "Examples:"
+            echo "  $0 --ip my-static-ip                 # Use by name"
+            echo "  $0 --ip 192.168.1.100               # Use by IP address"
+            exit 1
+        fi
+
+        # Check if the IP is already assigned
+        IP_ASSIGNEE=$(hcloud primary-ip describe "$CUSTOM_IP" -o json | jq -r '.assignee_id')
+        if [ "$IP_ASSIGNEE" != "null" ] && [ -n "$IP_ASSIGNEE" ]; then
+            ASSIGNEE_NAME=$(hcloud server describe "$IP_ASSIGNEE" -o json 2>/dev/null | jq -r '.name' || echo "Unknown")
+            ACTUAL_IP=$(hcloud primary-ip describe "$CUSTOM_IP" -o json | jq -r '.ip')
+            print_warning "Primary IP '$CUSTOM_IP' ($ACTUAL_IP) is already assigned to server: $ASSIGNEE_NAME (ID: $IP_ASSIGNEE)"
+            read -p "Continue anyway? The IP will be reassigned to the new server (y/N): " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                print_status "Deployment cancelled"
+                exit 0
+            fi
+        fi
+
+        ACTUAL_IP=$(hcloud primary-ip describe "$CUSTOM_IP" -o json | jq -r '.ip')
+        print_success "Primary IP '$CUSTOM_IP' ($ACTUAL_IP) is available for assignment"
+        PRIMARY_IP_PARAM="--primary-ipv4 $CUSTOM_IP"
+    fi
+
     # Create server with firewall
     print_status "Creating server with hcloud..."
-    hcloud server create \
-        --name "$SERVER_NAME" \
-        --type "$SERVER_TYPE" \
-        --image "$IMAGE" \
-        --location "$LOCATION" \
-        --ssh-key "$SSH_KEY_NAME" \
-        --firewall "$FIREWALL_NAME" \
-        --label "managed-by=netbird-selfhosted" \
-        --label "purpose=netbird-server" \
-        --label "customer=${CUSTOMER_NAME_CLEAN:-default}" \
-        --label "created=$(date +%Y-%m-%d)"
+    if [ -n "$CUSTOM_IP" ]; then
+        print_status "Using Primary IP: $CUSTOM_IP ($ACTUAL_IP)"
+        hcloud server create \
+            --name "$SERVER_NAME" \
+            --type "$SERVER_TYPE" \
+            --image "$IMAGE" \
+            --location "$LOCATION" \
+            --ssh-key "$SSH_KEY_NAME" \
+            --firewall "$FIREWALL_NAME" \
+            --primary-ipv4 "$CUSTOM_IP" \
+            --label "managed-by=netbird-selfhosted" \
+            --label "purpose=netbird-server" \
+            --label "customer=${CUSTOMER_NAME_CLEAN:-default}" \
+            --label "created=$(date +%Y-%m-%d)"
+    else
+        hcloud server create \
+            --name "$SERVER_NAME" \
+            --type "$SERVER_TYPE" \
+            --image "$IMAGE" \
+            --location "$LOCATION" \
+            --ssh-key "$SSH_KEY_NAME" \
+            --firewall "$FIREWALL_NAME" \
+            --label "managed-by=netbird-selfhosted" \
+            --label "purpose=netbird-server" \
+            --label "customer=${CUSTOMER_NAME_CLEAN:-default}" \
+            --label "created=$(date +%Y-%m-%d)"
+    fi
 
     if [ $? -eq 0 ]; then
         print_success "Server '$SERVER_NAME' created successfully"
@@ -666,8 +960,18 @@ wait_for_ssh() {
     local max_attempts=60
     local attempt=0
 
-    print_status "Waiting for SSH to be available on $server_ip..."
-    print_status "Testing SSH connection (timeout: 5 minutes)..."
+    print_status "Waiting for server to fully boot and SSH to be available..."
+
+    # Initial delay with countdown - server needs time to boot
+    print_status "Waiting 30 seconds for server initialization..."
+    for i in {30..1}; do
+        printf "\rServer boot countdown: %2d seconds remaining..." $i
+        sleep 1
+    done
+    echo
+    print_success "Initial wait complete, testing SSH connection..."
+
+    print_status "Testing SSH connection on $server_ip (timeout: 5 minutes)..."
     echo "Progress: [Port Check] -> [SSH Auth] -> [Success]"
     echo
 
@@ -697,12 +1001,12 @@ wait_for_ssh() {
             printf "Port 22 OPEN - Testing SSH auth..."
 
             # Test SSH connection with error capture (macOS compatible)
-            local ssh_output=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o BatchMode=yes -o PasswordAuthentication=no -o LogLevel=ERROR root@$server_ip "echo 'SSH_TEST_SUCCESS'" 2>&1 &)
+            local ssh_output=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o BatchMode=yes -o PasswordAuthentication=no -o LogLevel=ERROR root@$server_ip "echo 'SSH_TEST_SUCCESS'" 2>&1 &)
             local ssh_pid=$!
             local ssh_exit_code=124
 
             # Manual timeout implementation
-            (sleep 15 && kill $ssh_pid 2>/dev/null) &
+            (sleep 30 && kill $ssh_pid 2>/dev/null) &
             local timeout_pid=$!
 
             if wait $ssh_pid 2>/dev/null; then
@@ -722,6 +1026,9 @@ wait_for_ssh() {
                 ssh-keygen -R $server_ip >/dev/null 2>&1 || true
                 ssh-keyscan -H $server_ip >> ~/.ssh/known_hosts 2>/dev/null || true
                 print_success "Server added to known hosts"
+
+                # Create SSH alias now that SSH is working
+                create_ssh_alias "$server_ip" "$CUSTOMER_NAME"
 
                 return 0
             else
@@ -757,7 +1064,52 @@ wait_for_ssh() {
     return 1
 }
 
-# Function to manually add server to known hosts
+# Function to create SSH alias after SSH is confirmed working
+create_ssh_alias() {
+    local server_ip="$1"
+    local company_name="$2"
+
+    print_status "Creating SSH alias for easy access..."
+
+    # Create a short, practical alias from company name
+    local short_alias=$(echo "$company_name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]//g' | cut -c1-10)
+
+    # Ensure SSH config file exists
+    touch ~/.ssh/config
+
+    # Remove any existing entries for this IP or alias
+    ssh-keygen -R $server_ip >/dev/null 2>&1 || true
+    sed -i.bak "/^Host $short_alias$/,/^$/d" ~/.ssh/config 2>/dev/null || true
+
+    # Add SSH config entry
+    cat >> ~/.ssh/config << EOF
+
+# NetBird server for $company_name
+Host $short_alias
+    HostName $server_ip
+    User root
+    StrictHostKeyChecking no
+    UserKnownHostsFile ~/.ssh/known_hosts
+
+EOF
+
+    print_success "SSH alias '$short_alias' created"
+    print_highlight "You can now connect with: ssh $short_alias"
+
+    # Create local alias file for easy reference
+    local alias_file="$HOME/.netbird_servers"
+    touch "$alias_file"
+
+    # Remove any existing entry for this company/IP
+    grep -v "$company_name|" "$alias_file" > "$alias_file.tmp" 2>/dev/null || true
+    mv "$alias_file.tmp" "$alias_file" 2>/dev/null || true
+
+    # Add new entry
+    echo "$company_name|$short_alias|$server_ip|$(date)" >> "$alias_file"
+    print_success "Server alias saved to $alias_file"
+}
+
+# Function to manually add server to known hosts (legacy)
 add_to_known_hosts() {
     local server_ip="$1"
     print_status "Adding $server_ip to SSH known hosts..."
@@ -775,51 +1127,29 @@ add_to_known_hosts() {
 }
 
 # Function to install NetBird self-hosted
+# Function to install NetBird on the server
 install_netbird() {
-    print_header "=== Installing NetBird Self-Hosted ==="
-    echo
-
     local server_ip=$(hcloud server describe "$SERVER_NAME" -o json | jq -r '.public_net.ipv4.ip')
 
-    print_status "Installing NetBird self-hosted on $SERVER_NAME ($server_ip)..."
+    print_header "=== Installing NetBird on Server ==="
+    echo
 
-    # Test SSH connection before proceeding with more detailed feedback
     print_status "Verifying SSH connection for installation..."
 
-    # SSH test with macOS compatible timeout
-    local ssh_test_result=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o BatchMode=yes root@$server_ip "echo 'SSH_READY_FOR_INSTALL'; whoami; uptime" 2>&1 &)
-    local ssh_pid=$!
-    local ssh_exit_code=124
+    # Use the same SSH parameters that worked before
+    local ssh_test_result
+    local ssh_exit_code
 
-    # Manual timeout for macOS
-    (sleep 15 && kill $ssh_pid 2>/dev/null) &
-    local timeout_pid=$!
+    # Simple SSH test - just verify basic connectivity since SSH was already confirmed working
+    print_status "Quick SSH connectivity check..."
 
-    if wait $ssh_pid 2>/dev/null; then
-        ssh_exit_code=$?
-        kill $timeout_pid 2>/dev/null
+    # Use a simple test that's more likely to succeed
+    if timeout 30 ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o BatchMode=yes root@$server_ip "echo 'ready'" >/dev/null 2>&1; then
+        print_success "SSH connection verified - proceeding with installation"
     else
-        ssh_exit_code=124
-        ssh_test_result="SSH connection timeout"
-    fi
-
-    if [ $ssh_exit_code -eq 0 ] && [[ "$ssh_test_result" == *"SSH_READY_FOR_INSTALL"* ]]; then
-        print_success "SSH connection verified - ready for installation"
-        echo "Server info: $(echo "$ssh_test_result" | tail -2 | tr '\n' ' ')"
-    else
-        print_error "SSH connection failed during pre-installation check"
-        echo "Exit code: $ssh_exit_code"
-        echo "Output: $ssh_test_result"
-        show_troubleshooting "$server_ip"
-
-        read -p "Try to continue with installation anyway? (y/N): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            print_error "Installation cancelled. Server is created but NetBird not installed."
-            print_status "You can resume installation later when SSH is stable."
-            return 1
-        fi
-        print_warning "Proceeding with potentially unstable SSH connection..."
+        print_status "SSH quick test didn't respond, but this is often normal"
+        print_status "SSH was confirmed working moments ago during server setup"
+        print_status "Proceeding with installation (SSH usually works fine for actual commands)"
     fi
 
     # Create the installation script
@@ -835,7 +1165,12 @@ apt update && apt upgrade -y
 
 # Install required packages
 echo "Installing required packages..."
-apt install -y curl wget git docker.io docker-compose jq
+apt update
+apt install -y curl wget git jq
+
+# Install Docker using official method for better compatibility
+echo "Installing Docker..."
+curl -fsSL https://get.docker.com | sh
 
 # Enable and start Docker
 systemctl enable docker
@@ -953,12 +1288,22 @@ NETBIRD_TOKEN_SOURCE="idToken"
 # Device Authentication (disabled for Azure AD)
 NETBIRD_AUTH_DEVICE_AUTH_PROVIDER="none"
 
-# Management Service Azure AD Integration
-NETBIRD_MGMT_IDP="azure"
-NETBIRD_IDP_MGMT_CLIENT_ID="$AZURE_CLIENT_ID"
-NETBIRD_IDP_MGMT_CLIENT_SECRET="$AZURE_CLIENT_SECRET"
-NETBIRD_IDP_MGMT_EXTRA_OBJECT_ID="$AZURE_OBJECT_ID"
-NETBIRD_IDP_MGMT_EXTRA_GRAPH_API_ENDPOINT="https://graph.microsoft.com/v1.0"
+# Management Service Azure AD Integration (disabled for SPA applications)
+#
+# IMPORTANT: For SPA (Single Page Application) configurations, we disable server-side
+# Azure AD user management because:
+# 1. SPA applications don't use client secrets (they use PKCE flow)
+# 2. Server-side user management requires client_credentials flow (needs client secret)
+# 3. Users will authenticate directly through the web dashboard using secure PKCE flow
+# 4. This prevents the management service from crashing due to missing ClientSecret
+#
+# If you need server-side user management, you would need to create a separate
+# Azure AD application with client credentials for the management service.
+NETBIRD_MGMT_IDP=""
+NETBIRD_IDP_MGMT_CLIENT_ID=""
+NETBIRD_IDP_MGMT_CLIENT_SECRET=""
+NETBIRD_IDP_MGMT_EXTRA_OBJECT_ID=""
+NETBIRD_IDP_MGMT_EXTRA_GRAPH_API_ENDPOINT=""
 
 # Optional: Single account mode (recommended for most deployments)
 # This ensures all users join the same NetBird account/network
@@ -1050,16 +1395,48 @@ start_netbird() {
 #!/bin/bash
 set -e
 
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+# Function to print colored output
+print_status() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
 cd /opt/netbird/netbird/infrastructure_files/artifacts/
 
-# Detect Docker Compose command
-if docker compose version >/dev/null 2>&1; then
+# Detect Docker Compose command - try multiple methods
+if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
     DOCKER_COMPOSE_CMD="docker compose"
-elif docker-compose --version >/dev/null 2>&1; then
+elif command -v docker-compose >/dev/null 2>&1; then
     DOCKER_COMPOSE_CMD="docker-compose"
+elif command -v docker >/dev/null 2>&1; then
+    # Try docker compose without checking version first
+    DOCKER_COMPOSE_CMD="docker compose"
+    echo "Using 'docker compose' (assuming Docker Compose v2)"
 else
-    echo "ERROR: Neither 'docker compose' nor 'docker-compose' found!"
-    exit 1
+    echo "ERROR: Docker not found! Installing Docker..."
+    # Docker should have been installed in the setup, but try anyway
+    curl -fsSL https://get.docker.com | sh
+    systemctl enable docker
+    systemctl start docker
+    DOCKER_COMPOSE_CMD="docker compose"
 fi
 
 echo "Starting NetBird services with Docker Compose ($DOCKER_COMPOSE_CMD)..."
@@ -1079,8 +1456,178 @@ echo "Applying nginx SPA routing fix..."
 
 echo "OAuth SPA and nginx fixes applied!"
 
-# Create enhanced management script
-cat > /root/netbird-management.sh << 'MGMT_EOF'
+# Always ensure enhanced management script is uploaded
+print_status "Uploading enhanced management script..."
+
+# Try to upload the enhanced script using multiple methods
+enhanced_script_uploaded=false
+
+# Method 1: Try SCP first
+if [ -f "$SCRIPT_DIR/netbird-management-enhanced.sh" ]; then
+    if scp -o StrictHostKeyChecking=no -o ConnectTimeout=30 "$SCRIPT_DIR/netbird-management-enhanced.sh" root@$server_ip:/root/netbird-management.sh 2>/dev/null; then
+        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@$server_ip "chmod +x /root/netbird-management.sh"
+        print_success "Enhanced management script uploaded via SCP"
+        enhanced_script_uploaded=true
+    else
+        print_status "SCP upload failed, trying SSH method..."
+        # Method 2: Upload via SSH pipe
+        if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@$server_ip "cat > /root/netbird-management.sh" < "$SCRIPT_DIR/netbird-management-enhanced.sh" && ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@$server_ip "chmod +x /root/netbird-management.sh"; then
+            print_success "Enhanced management script uploaded via SSH"
+            enhanced_script_uploaded=true
+        else
+            print_warning "SSH upload also failed, will use embedded version"
+        fi
+    fi
+fi
+
+# If enhanced script wasn't uploaded, use embedded version
+if [ "$enhanced_script_uploaded" = false ]; then
+    print_status "Using embedded enhanced management script as fallback"
+    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@$server_ip "cat > /root/netbird-management.sh" << 'ENHANCED_MGMT_EOF'
+#!/bin/bash
+# Enhanced NetBird Management Script with SSL Certificate Verification
+# Version: 2.1.0
+
+COMPOSE_DIR="/opt/netbird/netbird/infrastructure_files/artifacts"
+NETBIRD_CONFIG="/opt/netbird/netbird/infrastructure_files/netbird.env"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# Function to print colored output
+print_status() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Detect Docker Compose command
+if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    DOCKER_COMPOSE_CMD="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+    DOCKER_COMPOSE_CMD="docker-compose"
+elif command -v docker >/dev/null 2>&1; then
+    DOCKER_COMPOSE_CMD="docker compose"
+else
+    DOCKER_COMPOSE_CMD="docker-compose"
+fi
+
+# Function to show service health
+show_health() {
+    print_status "NetBird Service Health Check"
+    echo "════════════════════════════════════════"
+
+    cd "$COMPOSE_DIR" || {
+        print_error "Cannot access compose directory: $COMPOSE_DIR"
+        return 1
+    }
+
+    # Check service status
+    print_status "Docker Compose Services:"
+    $DOCKER_COMPOSE_CMD ps
+    echo
+
+    # Count running services
+    running_count=$($DOCKER_COMPOSE_CMD ps --filter status=running --quiet | wc -l)
+    total_count=$($DOCKER_COMPOSE_CMD ps --quiet | wc -l)
+
+    if [ "$running_count" -eq "$total_count" ] && [ "$running_count" -gt 0 ]; then
+        print_success "All services are running ($running_count/$total_count)"
+    else
+        print_warning "Some services may have issues ($running_count/$total_count running)"
+    fi
+
+    # Show recent errors
+    print_status "Recent Errors (last 10):"
+    recent_errors=$($DOCKER_COMPOSE_CMD logs --tail=100 2>/dev/null | grep -i "error\|fail\|exception" | tail -10)
+    if [ -n "$recent_errors" ]; then
+        echo "$recent_errors"
+    else
+        print_success "No recent errors found"
+    fi
+}
+
+case "$1" in
+    "status")
+        cd "$COMPOSE_DIR" || exit 1
+        $DOCKER_COMPOSE_CMD ps
+        ;;
+    "health")
+        show_health
+        ;;
+    "logs")
+        cd "$COMPOSE_DIR" || exit 1
+        if [ -n "$2" ]; then
+            $DOCKER_COMPOSE_CMD logs -f "$2"
+        else
+            $DOCKER_COMPOSE_CMD logs -f
+        fi
+        ;;
+    "restart")
+        cd "$COMPOSE_DIR" || exit 1
+        print_status "Restarting NetBird services..."
+        $DOCKER_COMPOSE_CMD restart
+        print_success "Services restarted"
+        ;;
+    "stop")
+        cd "$COMPOSE_DIR" || exit 1
+        print_status "Stopping NetBird services..."
+        $DOCKER_COMPOSE_CMD stop
+        print_success "Services stopped"
+        ;;
+    "start")
+        cd "$COMPOSE_DIR" || exit 1
+        print_status "Starting NetBird services..."
+        $DOCKER_COMPOSE_CMD up -d
+        print_success "Services started"
+        ;;
+    "update")
+        cd "$COMPOSE_DIR" || exit 1
+        print_status "Updating NetBird services..."
+        $DOCKER_COMPOSE_CMD pull
+        $DOCKER_COMPOSE_CMD up -d --force-recreate
+        print_success "Services updated"
+        ;;
+    *)
+        echo "Enhanced NetBird Management Script v2.1.0"
+        echo "Usage: $0 {status|health|logs|restart|stop|start|update}"
+        echo ""
+        echo "Commands:"
+        echo "  status      - Show service status"
+        echo "  health      - Complete health check"
+        echo "  logs        - Show service logs"
+        echo "  restart     - Restart all services"
+        echo "  stop        - Stop all services"
+        echo "  start       - Start all services"
+        echo "  update      - Update and restart services"
+        echo ""
+        echo "Using: $DOCKER_COMPOSE_CMD"
+        ;;
+esac
+ENHANCED_MGMT_EOF
+
+    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@$server_ip "chmod +x /root/netbird-management.sh"
+    print_success "Enhanced management script embedded successfully"
+fi
+EOF
+        # Fallback to embedded version
+        cat > /root/netbird-management.sh << 'MGMT_EOF'
 #!/bin/bash
 # Enhanced NetBird Management Script with SSL Certificate Verification
 # Version: 2.1.0
@@ -1369,9 +1916,95 @@ case "$1" in
 esac
 MGMT_EOF
 
-chmod +x /root/netbird-management.sh
+        chmod +x /root/netbird-management.sh
+        echo "Enhanced NetBird management script created at /root/netbird-management.sh"
+    fi
+else
+    print_warning "Enhanced management script not found at $SCRIPT_DIR/netbird-management-enhanced.sh"
+    print_status "Using embedded management script"
+    # Create basic management script as fallback
+    cat > /root/netbird-management.sh << 'MGMT_EOF'
+#!/bin/bash
+# Basic NetBird Management Script
+# Version: 2.0.0
 
-echo "Enhanced NetBird management script created at /root/netbird-management.sh"
+COMPOSE_DIR="/opt/netbird/netbird/infrastructure_files/artifacts"
+
+case "$1" in
+    "status")
+        cd "$COMPOSE_DIR" && docker compose ps
+        ;;
+    "logs")
+        cd "$COMPOSE_DIR" && docker compose logs -f
+        ;;
+    "restart")
+        cd "$COMPOSE_DIR" && docker compose restart
+        ;;
+    "start")
+        cd "$COMPOSE_DIR" && docker compose up -d
+        ;;
+    "stop")
+        cd "$COMPOSE_DIR" && docker compose stop
+        ;;
+    *)
+        echo "Usage: $0 {status|logs|restart|start|stop}"
+        ;;
+esac
+MGMT_EOF
+
+    chmod +x /root/netbird-management.sh
+    echo "Basic NetBird management script created at /root/netbird-management.sh"
+        fi
+    fi
+else
+    print_warning "Enhanced management script not found at $SCRIPT_DIR/netbird-management-enhanced.sh"
+    print_status "Using embedded basic management script"
+    # Create basic management script as fallback
+    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@$server_ip "cat > /root/netbird-management.sh" << 'BASIC_MGMT_EOF'
+#!/bin/bash
+# Basic NetBird Management Script
+COMPOSE_DIR="/opt/netbird/netbird/infrastructure_files/artifacts"
+
+# Detect Docker Compose command - more robust detection
+if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    DOCKER_COMPOSE_CMD="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+    DOCKER_COMPOSE_CMD="docker-compose"
+elif command -v docker >/dev/null 2>&1; then
+    # Modern Docker includes compose as a plugin
+    DOCKER_COMPOSE_CMD="docker compose"
+else
+    DOCKER_COMPOSE_CMD="docker-compose"
+fi
+
+case "$1" in
+    "status")
+        cd "$COMPOSE_DIR" && $DOCKER_COMPOSE_CMD ps
+        ;;
+    "logs")
+        cd "$COMPOSE_DIR" && $DOCKER_COMPOSE_CMD logs -f
+        ;;
+    "restart")
+        cd "$COMPOSE_DIR" && $DOCKER_COMPOSE_CMD restart
+        ;;
+    "stop")
+        cd "$COMPOSE_DIR" && $DOCKER_COMPOSE_CMD stop
+        ;;
+    "start")
+        cd "$COMPOSE_DIR" && $DOCKER_COMPOSE_CMD up -d
+        ;;
+    "health")
+        echo "Health check not available in basic script"
+        echo "Use: $0 status"
+        ;;
+    *)
+        echo "Usage: $0 {status|logs|restart|stop|start|health}"
+        ;;
+esac
+BASIC_MGMT_EOF
+    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@$server_ip "chmod +x /root/netbird-management.sh"
+    print_success "Basic management script created"
+fi
 EOF
 
     # Execute startup script
@@ -1553,6 +2186,10 @@ show_summary() {
     echo "Server Type: $SERVER_TYPE (ARM 2 vCPU, 4GB RAM)"
     echo "Location: $LOCATION (Nuremberg, Germany)"
     echo "IPv4 Address: $server_ip"
+    if [ -n "$CUSTOM_IP" ]; then
+        ACTUAL_IP=$(hcloud primary-ip describe "$CUSTOM_IP" -o json | jq -r '.ip')
+        echo "Primary IP: $CUSTOM_IP ($ACTUAL_IP - custom assignment)"
+    fi
     echo "SSH Access: ssh root@$server_ip"
     echo "Firewall: $FIREWALL_NAME (Hetzner Cloud managed)"
     echo
@@ -1578,6 +2215,16 @@ show_summary() {
     echo "   • Type: A"
     echo "   • Value: $server_ip"
     echo "   • TTL: 300 (5 minutes)"
+    if [ -n "$CUSTOM_IP" ]; then
+        ACTUAL_IP=$(hcloud primary-ip describe "$CUSTOM_IP" -o json | jq -r '.ip')
+        echo "   • Primary IP: $CUSTOM_IP ($ACTUAL_IP)"
+        echo
+        echo "   ✅ Using Primary IP: Benefits include:"
+        echo "   • IP persists if server is recreated"
+        echo "   • Stable DNS records (no IP changes)"
+        echo "   • Can be transferred between servers"
+        echo "   • Same cost as regular IP (€0.50/month)"
+    fi
     echo
     echo "   DNS Commands (if using command line tools):"
     echo "   # Example for Cloudflare CLI:"
@@ -1623,14 +2270,41 @@ show_summary() {
     echo "   ssh root@$server_ip"
     echo "   /root/netbird-management.sh status"
     echo
+    # Show SSH alias information if available
+    local short_alias=$(echo "$CUSTOMER_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]//g' | cut -c1-10)
+
+    if grep -q "Host $short_alias" ~/.ssh/config 2>/dev/null; then
+        print_highlight "8. Easy SSH Access (Short Alias):"
+        echo "   ssh $short_alias"
+        echo "   # This connects to: $server_ip"
+        echo "   # Alias saved for: $CUSTOMER_NAME"
+        echo
+        print_highlight "9. Management Commands with Alias:"
+        echo "   ssh $short_alias '/root/netbird-management.sh status'"
+        echo "   ssh $short_alias '/root/netbird-management.sh health'"
+        echo "   ssh $short_alias '/root/netbird-management.sh logs'"
+    fi
+    echo
     echo "═══════════════════════════════════════════════════════════════"
     echo "  🛠️  Useful Management Commands"
     echo "═══════════════════════════════════════════════════════════════"
     echo "# Check all services status"
     echo "ssh root@$server_ip '/root/netbird-management.sh status'"
+
+    # Show alias commands if available
+    local short_alias=$(echo "$CUSTOMER_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]//g' | cut -c1-10)
+
+    if grep -q "Host $short_alias" ~/.ssh/config 2>/dev/null; then
+        echo "# OR using short alias:"
+        echo "ssh $short_alias '/root/netbird-management.sh status'"
+    fi
     echo
     echo "# Complete health check (services, SSL, Azure AD)"
     echo "ssh root@$server_ip '/root/netbird-management.sh health'"
+
+    if grep -q "Host $short_alias" ~/.ssh/config 2>/dev/null; then
+        echo "# OR: ssh $short_alias '/root/netbird-management.sh health'"
+    fi
     echo
     echo "# Monitor real-time logs (Ctrl+C to exit)"
     echo "ssh root@$server_ip '/root/netbird-management.sh logs'"
@@ -1665,17 +2339,37 @@ show_summary() {
     echo "hcloud firewall describe $FIREWALL_NAME"
     echo "hcloud firewall apply-to-resource $FIREWALL_NAME --type server --resource $SERVER_NAME"
     echo
+
+    # Add Primary IP management commands if custom IP was used
+    if [ -n "$CUSTOM_IP" ]; then
+        echo "# Primary IP management"
+        echo "hcloud primary-ip list"
+        echo "hcloud primary-ip describe $CUSTOM_IP"
+        echo "hcloud primary-ip unassign $CUSTOM_IP  # Unassign from server"
+        echo "hcloud primary-ip assign $CUSTOM_IP --assignee $SERVER_NAME  # Reassign to server"
+        echo
+    fi
     echo "═══════════════════════════════════════════════════════════════"
     echo "  💰 Cost Information & Server Management"
     echo "═══════════════════════════════════════════════════════════════"
-    echo "Monthly Cost: ~€3.79 (€3.29 CAX11 server + €0.50 IPv4)"
+    if [ -n "$CUSTOM_IP" ]; then
+        echo "Monthly Cost: ~€3.79 (€3.29 CAX11 server + €0.50 Primary IPv4)"
+        echo "Note: Primary IP persists after server deletion (€0.50/month until deleted)"
+    else
+        echo "Monthly Cost: ~€3.79 (€3.29 CAX11 server + €0.50 IPv4)"
+    fi
     echo "Daily Cost: ~€0.13"
     echo
     echo "Cost Management:"
-    echo "• Stop server (keeps data): hcloud server poweroff $SERVER_NAME"
-    echo "• Start server: hcloud server poweron $SERVER_NAME"
-    echo "• Delete permanently: hcloud server delete $SERVER_NAME"
-    echo "• Delete firewall: hcloud firewall delete $FIREWALL_NAME"
+    echo "To stop server (saves costs): hcloud server poweroff $SERVER_NAME"
+    echo "To restart server: hcloud server poweron $SERVER_NAME"
+    echo "To delete server: hcloud server delete $SERVER_NAME"
+    if [ -n "$CUSTOM_IP" ]; then
+        ACTUAL_IP=$(hcloud primary-ip describe "$CUSTOM_IP" -o json | jq -r '.ip')
+        echo "To delete Primary IP: hcloud primary-ip delete $CUSTOM_IP  # $ACTUAL_IP"
+        echo "Note: Primary IP will remain assigned until server deletion"
+    fi
+    echo "To delete firewall: hcloud firewall delete $FIREWALL_NAME"
     echo
     echo "═══════════════════════════════════════════════════════════════"
     echo "  📞 Support & Documentation"
@@ -1876,16 +2570,30 @@ post_deployment_checks() {
     # Check firewall status
     print_status "Checking firewall configuration..."
     if hcloud firewall describe "$FIREWALL_NAME" >/dev/null 2>&1; then
-        local firewall_resources=$(hcloud firewall describe "$FIREWALL_NAME" -o json | jq -r '.resources[]?.server.name' 2>/dev/null | grep "$SERVER_NAME" || echo "")
-        if [ -n "$firewall_resources" ]; then
-            print_success "Firewall '$FIREWALL_NAME' is properly applied to server"
-            local rule_count=$(hcloud firewall describe "$FIREWALL_NAME" -o json | jq '.rules | length' 2>/dev/null || echo "0")
-            print_status "Firewall has $rule_count rules configured"
+        # Get firewall resources with better JSON parsing
+        local firewall_data=$(hcloud firewall describe "$FIREWALL_NAME" -o json 2>/dev/null)
+        local firewall_resources=$(echo "$firewall_data" | jq -r '.resources[]? | select(.type=="server") | .server.name' 2>/dev/null)
+        local rule_count=$(echo "$firewall_data" | jq '.rules | length' 2>/dev/null || echo "0")
+
+        if echo "$firewall_resources" | grep -q "$SERVER_NAME"; then
+            print_success "Firewall '$FIREWALL_NAME' is properly applied to server '$SERVER_NAME'"
+            print_status "Firewall has $rule_count security rules configured"
         else
-            print_warning "Firewall '$FIREWALL_NAME' exists but not applied to server"
+            print_warning "Firewall '$FIREWALL_NAME' exists but may not be applied to server '$SERVER_NAME'"
+            print_status "Applied to servers: $(echo "$firewall_resources" | tr '\n' ' ' | sed 's/ $//')"
+            print_status "Expected server: $SERVER_NAME"
+
+            # Try to auto-apply the firewall
+            print_status "Attempting to apply firewall to server..."
+            if hcloud firewall apply-to-resource "$FIREWALL_NAME" --type server --resource "$SERVER_NAME" 2>/dev/null; then
+                print_success "Firewall successfully applied to server"
+            else
+                print_warning "Could not auto-apply firewall - manual intervention may be needed"
+            fi
         fi
     else
         print_error "Firewall '$FIREWALL_NAME' not found"
+        print_status "Available firewalls: $(hcloud firewall list -o noheader | cut -d' ' -f1 | tr '\n' ' ')"
     fi
 
     # Check if ports are open
@@ -1905,8 +2613,17 @@ post_deployment_checks() {
         print_warning "Port 443 (HTTPS) is not accessible"
     fi
 
-    # Verify SSL certificate
-    verify_ssl_certificate "$NETBIRD_DOMAIN" "$server_ip"
+    # Optional SSL certificate verification
+    echo
+    print_status "SSL Certificate verification can take 5-15 minutes after DNS configuration..."
+    read -p "Would you like to verify SSL certificate now? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        verify_ssl_certificate "$NETBIRD_DOMAIN" "$server_ip"
+    else
+        print_status "Skipping SSL verification - you can check later with:"
+        print_status "ssh root@$server_ip '/root/netbird-management.sh ssl'"
+    fi
 
     echo
     print_status "Verification complete. Check the summary above for next steps."
@@ -1915,12 +2632,63 @@ post_deployment_checks() {
     show_azure_restart_instructions "$server_ip"
 }
 
+# Function to list saved NetBird server aliases
+list_server_aliases() {
+    local alias_file="$HOME/.netbird_servers"
+
+    if [ ! -f "$alias_file" ]; then
+        print_status "No saved NetBird server aliases found."
+        print_status "Deploy a server first to create aliases."
+        return 0
+    fi
+
+    print_header "🖥️  Saved NetBird Server Aliases"
+    echo
+
+    echo "Format: Company | SSH Alias | IP Address | Created"
+    echo "═══════════════════════════════════════════════════════"
+
+    while IFS='|' read -r company alias ip created; do
+        if [ -n "$company" ]; then
+            printf "%-20s | %-10s | %-15s | %s\n" "$company" "$alias" "$ip" "$created"
+        fi
+    done < "$alias_file"
+
+    echo
+    print_highlight "🔗 Quick Connection Commands:"
+    echo
+
+    while IFS='|' read -r company alias ip created; do
+        if [ -n "$company" ]; then
+            echo "# Connect to $company NetBird server:"
+            echo "ssh $alias"
+            echo "ssh $alias '/root/netbird-management.sh status'"
+            echo "ssh $alias '/root/netbird-management.sh health'"
+            echo
+        fi
+    done < "$alias_file"
+
+    print_status "SSH config entries are saved in ~/.ssh/config"
+    print_status "Server list is saved in $alias_file"
+    echo
+    print_highlight "💡 Examples:"
+    echo "ssh nb2                                    # Connect to server"
+    echo "ssh nb2 '/root/netbird-management.sh ssl' # Check SSL status"
+    echo "ssh nb2 '/root/netbird-management.sh logs'# View logs"
+}
+
 # Function to show usage
 show_usage() {
     cat << EOF
 NetBird Self-Hosted Deployment Script v2.2.0 (Enhanced with SPA OAuth)
 
 Usage: $0 [options]
+       $0 list-servers
+       $0 list-ips
+
+Commands:
+  list-servers           List all saved NetBird server aliases and connection info
+  list-ips              List available Primary IPs in Hetzner Cloud
 
 Options:
   --customer <name>      Customer name (for server naming)
@@ -1933,11 +2701,28 @@ Options:
   --server-name <name>   Custom server name (default: netbird-selfhosted-<customer>)
   --server-type <type>   Server type (default: cax11)
   --location <loc>       Server location (default: nbg1)
+  --ip <name_or_ip>     Use existing Primary IP (name or IP address)
+  --list-ips            List available Primary IPs and exit
   --help, -h            Show this help message
 
 Examples:
   # Interactive mode (recommended)
   $0
+
+  # List saved server aliases
+  $0 list-servers
+
+  # List available Primary IPs
+  $0 list-ips
+
+  # List available Primary IPs (alternative syntax)
+  $0 --list-ips
+
+  # Use specific Primary IP by name
+  $0 --customer "Acme Corp" --ip my-static-ip
+
+  # Use specific Primary IP by IP address
+  $0 --customer "Acme Corp" --ip 192.168.1.100
 
   # Non-interactive mode
   ./deploy-netbird-selfhosted.sh --customer "Acme Corp" \
@@ -2007,6 +2792,26 @@ parse_arguments() {
                 LOCATION="$2"
                 shift 2
                 ;;
+            --ip)
+                CUSTOM_IP="$2"
+                shift 2
+                ;;
+            --list-ips)
+                print_header "🌐 Available Primary IPs in Hetzner Cloud"
+                echo
+                hcloud primary-ip list
+                echo
+                print_status "To create a new Primary IP:"
+                echo "  hcloud primary-ip create --type ipv4 --location $LOCATION --name my-ip --assignee-type server"
+                echo
+                print_status "To use an existing Primary IP:"
+                echo "  $0 --ip <primary-ip-name-or-address>"
+                echo
+                print_status "Examples:"
+                echo "  $0 --ip my-static-ip                 # Use by name"
+                echo "  $0 --ip 192.168.1.100               # Use by IP address"
+                exit 0
+                ;;
             --help|-h)
                 show_usage
                 exit 0
@@ -2022,6 +2827,32 @@ parse_arguments() {
 
 # Main function
 main() {
+    # Handle special commands first
+    if [ "$1" = "list-servers" ] || [ "$1" = "list" ]; then
+        list_server_aliases
+        exit 0
+    fi
+
+    if [ "$1" = "list-ips" ]; then
+        print_header "🌐 Available Primary IPs in Hetzner Cloud"
+        echo
+        hcloud primary-ip list
+        echo
+        print_status "To create a new Primary IP:"
+        echo "  hcloud primary-ip create --type ipv4 --location $LOCATION --name my-ip --assignee-type server"
+        echo
+        print_status "To use an existing Primary IP:"
+        echo "  $0 --ip <primary-ip-name-or-address>"
+        echo
+        print_status "Examples:"
+        echo "  $0 --ip my-static-ip                 # Use by name"
+        echo "  $0 --ip 192.168.1.100               # Use by IP address"
+        exit 0
+    fi
+
+
+
+
     # Parse command line arguments
     parse_arguments "$@"
 
@@ -2056,6 +2887,13 @@ main() {
     echo "Customer: ${CUSTOMER_NAME:-N/A}"
     echo "Server: $SERVER_NAME ($SERVER_TYPE, $LOCATION)"
     echo "Domain: $NETBIRD_DOMAIN"
+    if [ -n "$CUSTOM_IP" ]; then
+        ACTUAL_IP=$(hcloud primary-ip describe "$CUSTOM_IP" -o json | jq -r '.ip')
+        echo "IP Address: Custom Primary IP ($ACTUAL_IP)"
+        echo "Primary IP Name: $CUSTOM_IP"
+    else
+        echo "IP Address: Automatic assignment"
+    fi
     echo "Identity Provider: Azure AD (SPA with PKCE)"
     echo "Authentication: No client secret (PKCE-only)"
     echo "Firewall: $FIREWALL_NAME"

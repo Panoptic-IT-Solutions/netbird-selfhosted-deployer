@@ -71,26 +71,37 @@ From the **Overview** page, copy and save these values:
 1. Still in the **Authentication** section
 2. Click **+ Add a platform** again
 3. Select **Mobile and desktop applications**
-4. Add these **Redirect URIs** for NetBird clients:
+4. Check these **default Redirect URIs** (should be pre-selected):
+   ```
+   ✅ https://login.microsoftonline.com/common/oauth2/nativeclient
+   ✅ https://login.live.com/oauth20_desktop.srf (LiveSDK)
+   ✅ msalbe064fd7-190f-4554-8c88-1124b8dabc31://auth (MSAL only)
+   ```
+5. Add this **additional URI** for localhost fallback:
    ```
    http://localhost:53000
-   http://localhost:54000
-   urn:ietf:wg:oauth:2.0:oob
    ```
    These URIs handle authentication for:
-   - Desktop applications (localhost ports)
-   - Mobile applications (custom schemes)
-   - CLI tools (out-of-band flow)
-5. Click **Configure**
+   - Desktop applications (native client flows + localhost fallback)
+   - Mobile applications (native client flows)
+   - CLI tools (native client flows)
+6. Click **Configure**
 
-### Step 5: Advanced Settings
-1. Still in the **Authentication** section
+### Step 5: Set Application ID URI (REQUIRED)
+⚠️ **CRITICAL**: This must be done before API permissions!
+1. Go to **Expose an API** section
+2. Click **Set** next to **Application ID URI**
+3. Accept the default: `api://[your-client-id]`
+4. Click **Save**
+
+### Step 6: Advanced Settings
+1. Go back to **Authentication** section
 2. Scroll down to **Advanced settings**
 3. Set **Allow public client flows** to **Yes** ⚠️ **REQUIRED for mobile/desktop clients**
 4. Set **Treat application as a public client** to **Yes**
 5. Click **Save**
 
-### Step 5.1: Configure Token Configuration (Optional but Recommended)
+### Step 6.1: Configure Token Configuration (Optional but Recommended)
 1. Go to **Token configuration** section
 2. Click **+ Add optional claim**
 3. Select **ID** token type
@@ -102,7 +113,7 @@ From the **Overview** page, copy and save these values:
 5. Click **Add**
 6. If prompted about Microsoft Graph permissions, click **Yes, add them**
 
-### Step 6: API Permissions
+### Step 7: API Permissions
 1. Go to **API permissions** section
 2. You should see **Microsoft Graph** → **User.Read** (already present)
 3. Click **+ Add a permission**
@@ -115,20 +126,19 @@ From the **Overview** page, copy and save these values:
 ### Step 7: Expose an API (Required)
 ⚠️ **REQUIRED**: This prevents AADSTS65005 errors
 
-1. Go to **Expose an API** section
-2. Click **Set** next to **Application ID URI**
-3. Accept the default: `api://[your-client-id]`
-4. Click **Save**
-5. Click **+ Add a scope**
-6. Configure the scope:
+### Step 8: Add API Scope (Fix for AADSTS65005)
+⚠️ **IMPORTANT**: Add scope to the Application ID URI you created in Step 5!
+1. Still in **Expose an API** section
+2. Click **+ Add a scope**
+3. Configure the scope:
    - **Scope name**: `api`
    - **Who can consent**: `Admins only`
    - **Admin consent display name**: `Access NetBird API`
    - **Admin consent description**: `Allows access to NetBird API`
    - **State**: `Enabled`
-7. Click **Add scope**
+4. Click **Add scope**
 
-### Step 8: Final Verification Checklist
+### Step 9: Final Verification Checklist
 
 Before proceeding, verify these settings:
 
@@ -137,9 +147,8 @@ Before proceeding, verify these settings:
   - `https://your-domain.com/auth`
   - `https://your-domain.com/silent-auth`
 - ✅ **Mobile and desktop applications** platform configured with:
-  - `http://localhost:53000`
-  - `http://localhost:54000`
-  - `urn:ietf:wg:oauth:2.0:oob`
+  - Default Microsoft URIs (pre-selected)
+  - `http://localhost:53000` (added manually)
 - ✅ Access tokens: **Enabled**
 - ✅ ID tokens: **Enabled**
 - ✅ Allow public client flows: **Yes**
@@ -295,21 +304,21 @@ curl -I https://your-netbird-domain.com:10000
 
 ### Desktop Applications
 - **Authentication Flow**: Authorization Code + PKCE
-- **Redirect URIs**: Localhost URLs (http://localhost:53000, http://localhost:54000)
+- **Redirect URIs**: Native client URIs + localhost fallback (http://localhost:53000)
 - **Token Storage**: Secure OS keychain/credential manager
-- **Security**: Local redirect handling, no embedded secrets
+- **Security**: Native client flows, no embedded secrets
 
 ### Mobile Applications
 - **Authentication Flow**: Authorization Code + PKCE
-- **Redirect URIs**: Custom app schemes + localhost fallback
+- **Redirect URIs**: Native client URIs for in-app authentication
 - **Token Storage**: Secure mobile keychain (iOS Keychain, Android Keystore)
-- **Security**: In-app browser for authentication, secure token storage
+- **Security**: Native authentication flows, secure token storage
 
 ### CLI Tools
-- **Authentication Flow**: Device Code Flow (urn:ietf:wg:oauth:2.0:oob)
-- **Redirect URIs**: Out-of-band redirect for headless environments
+- **Authentication Flow**: Native client flows
+- **Redirect URIs**: Native client URIs for device authentication
 - **Token Storage**: Local secure storage
-- **Security**: Device-specific authentication codes
+- **Security**: Device-specific authentication flows
 
 ## 📚 Additional Resources
 
@@ -328,9 +337,8 @@ Before deploying NetBird, ensure all platform configurations are complete:
   - [ ] `https://your-netbird-domain.com/auth`
   - [ ] `https://your-netbird-domain.com/silent-auth`
 - [ ] **Mobile and desktop applications** platform added with client redirect URIs:
-  - [ ] `http://localhost:53000`
-  - [ ] `http://localhost:54000`
-  - [ ] `urn:ietf:wg:oauth:2.0:oob`
+  - [ ] Default Microsoft URIs (pre-selected)
+  - [ ] `http://localhost:53000` (manually added)
 - [ ] Access tokens and ID tokens enabled
 - [ ] Public client flows allowed (**Yes**)
 - [ ] Treat application as a public client (**Yes**)

@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 💻 **Desktop client configuration guide** with OAuth settings
 - 📱 **Mobile app setup instructions** for iOS and Android
 - 🔧 **CLI tool configuration** with device code flow support
+- 🤖 **Automatic hcloud CLI installation** with cross-platform support (macOS/Linux)
+- ⏱️ **Enhanced SSH waiting with countdown timers** and server boot detection
+- 🔄 **Improved retry logic** for SSH connections and server setup
+- 🔧 **Interactive context management** for Hetzner Cloud API setup
 
 ### Fixed
 - 🐛 **OAuth 400 Bad Request errors** during Azure AD authentication
@@ -31,6 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 🌐 **CORS policy errors** in browser console
 - 📝 **Configuration file permission issues**
 - 🔄 **Service restart failures** after configuration changes
+- 📱 **Incorrect mobile/desktop redirect URIs** - now uses Microsoft default URIs
+- ⏱️ **SSH connection timeout issues** during server setup
+- 🔧 **Inconsistent firewall detection** reporting incorrect application status
+- 📋 **Azure AD setup sequence** - Application ID URI now set before API permissions
+- ⚡ **Prerequisite failures** - automatic hcloud CLI installation instead of hard exit
+- 🕐 **Server boot timing** - added initial delay for proper server initialization
 
 ### Changed
 - 🔄 **Updated nginx configuration** with proper `try_files` directive for SPA routing
@@ -42,6 +52,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 🌐 **Expanded Azure AD configuration** to support both SPA and mobile/desktop platforms
 - 📱 **Universal OAuth setup** with multiple redirect URIs for all client types
 - 📖 **Enhanced documentation** with platform-specific configuration instructions
+- 🔧 **Corrected Azure AD mobile/desktop redirect URIs** to use Microsoft default URIs
+- ⚡ **Improved prerequisite checks** with automatic dependency installation
+- 🕐 **Enhanced server boot waiting** with visual countdown timers
+- 🔍 **Better firewall detection** with auto-application and detailed status reporting
+- 📋 **Reordered Azure AD setup steps** to ensure Application ID URI is set before API permissions
 
 ### Security
 - 🔒 **Implemented universal PKCE-only OAuth flow** eliminating client secret requirements for all platforms
@@ -52,6 +67,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 👤 **Hardened user access controls** with SSH key enforcement
 - 📱 **Multi-platform security** with proper public client flow configuration
 - 🔧 **Enhanced OAuth security** with platform-specific redirect URI validation
+- 🔐 **Improved Azure AD configuration** using Microsoft's secure default redirect URIs
+- 🛡️ **Better firewall management** with automatic application and verification
 
 ## [2.1.0] - 2023-12-10
 
