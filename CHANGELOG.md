@@ -5,11 +5,16 @@ All notable changes to the NetBird Self-Hosted Deployer will be documented in th
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.2.0] - 2024-01-15
+## [2.2.0] - 2025-07-18
 
 ### Added
 - ✨ **Universal Azure AD client support** with PKCE authentication for all NetBird client types
 - 📱 **Multi-platform configuration** for web dashboard, desktop apps, mobile apps, and CLI tools
+- 🌐 **Enhanced IP assignment logic** with support for Primary IP names and addresses
+- 🔧 **Interactive IP selection** during deployment configuration
+- 📋 **Enhanced management script** with health checks, SSL verification, and Azure AD troubleshooting
+- 🛠️ **Improved Docker Compose detection** supporting both standalone and plugin versions
+- 🔧 **Fixed SSH verification** eliminating false positive connection errors
 - 🔧 **One-click installer script** for easy deployment
 - 📚 **Comprehensive documentation suite** including troubleshooting and security guides
 - 🛡️ **Enhanced security configurations** with fail2ban and UFW firewall
@@ -28,6 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 🔧 **Interactive context management** for Hetzner Cloud API setup
 
 ### Fixed
+- 🚨 **Critical: Management service crashes** due to Azure AD IdP configuration expecting client secrets in SPA mode
+- 🌐 **API connection refused errors** (port 33073) caused by management service crashes
+- 🔧 **TURN server IP configuration** not updating after server IP changes
+- 📋 **SSH configuration and known_hosts** management for IP address changes
+- 🔧 **Docker Compose detection** issues with modern Docker that includes compose as plugin
+- ⚠️ **SSH verification false positives** causing unnecessary deployment warnings
+- 🔧 **Enhanced management script deployment** ensuring proper script installation
 - 🐛 **OAuth 400 Bad Request errors** during Azure AD authentication
 - 🔧 **Nginx SPA routing issues** causing 404 errors on `/auth` callbacks
 - 🚫 **PKCE vs Client Secret conflicts** in OAuth flow
@@ -43,6 +55,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 🕐 **Server boot timing** - added initial delay for proper server initialization
 
 ### Changed
+- 🔧 **Azure AD configuration for SPA applications** - disabled server-side IdP management that requires client secrets
+- 💾 **Docker installation method** - changed to official Docker installation for better Compose plugin support
+- 🔧 **SSH verification approach** - made more lenient to reduce false positive failures
+- 🌐 **IP assignment workflow** - added interactive Primary IP selection during deployment
+- 📋 **Management script deployment** - improved reliability with multiple upload methods and fallbacks
 - 🔄 **Updated nginx configuration** with proper `try_files` directive for SPA routing
 - 🏗️ **Improved deployment script structure** with better error handling
 - 📚 **Enhanced user prompts** with clearer instructions and validation
@@ -59,6 +76,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 📋 **Reordered Azure AD setup steps** to ensure Application ID URI is set before API permissions
 
 ### Security
+- 🔒 **Proper SPA security configuration** - eliminated server-side client secret requirements preventing security vulnerabilities
+- 🔧 **Secured management service** - prevented crashes that could expose security issues
 - 🔒 **Implemented universal PKCE-only OAuth flow** eliminating client secret requirements for all platforms
 - 🛡️ **Added comprehensive firewall rules** with UFW configuration
 - 🔐 **Enhanced SSL/TLS configuration** with modern cipher suites
@@ -70,7 +89,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 🔐 **Improved Azure AD configuration** using Microsoft's secure default redirect URIs
 - 🛡️ **Better firewall management** with automatic application and verification
 
-## [2.1.0] - 2023-12-10
+## [2.1.0] - 2025-07-12
 
 ### Added
 - 🌍 **Multi-location server deployment** support
@@ -90,7 +109,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 📚 **Updated documentation** with more detailed Azure AD setup
 - 🎨 **Enhanced user interface** feedback during deployment
 
-## [2.0.0] - 2023-11-15
+## [2.0.0] - 2025-07-10
 
 ### Added
 - 🎉 **Complete rewrite** of deployment automation
@@ -112,7 +131,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ❌ **Basic HTTP authentication** (replaced with Azure AD)
 - ❌ **Static IP requirements** (now dynamic with DNS)
 
-## [1.2.1] - 2023-10-20
+## [1.2.1] - 2025-06-20
 
 ### Fixed
 - 🐛 **NetBird management service** startup issues
@@ -123,7 +142,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 🔒 **Updated base system packages** to latest security patches
 - 🛡️ **Improved firewall rule specificity**
 
-## [1.2.0] - 2023-10-05
+## [1.2.0] - 2025-06-15
 
 ### Added
 - 🔄 **Automatic system updates** configuration
@@ -135,7 +154,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 🏗️ **Improved error handling** throughout the script
 - 📚 **Updated setup documentation** with troubleshooting section
 
-## [1.1.0] - 2023-09-15
+## [1.1.0] - 2025-06-10
 
 ### Added
 - 🌐 **Custom domain support** for NetBird dashboard
@@ -147,7 +166,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 🐛 **Service startup order** dependencies
 - 🔧 **Network configuration** issues in Docker environment
 
-## [1.0.0] - 2023-09-01
+## [1.0.0] - 2025-06-01
 
 ### Added
 - 🎉 **Initial release** of NetBird Self-Hosted Deployer
