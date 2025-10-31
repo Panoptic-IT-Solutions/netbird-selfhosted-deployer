@@ -346,7 +346,7 @@ collect_ip_config() {
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         echo
         print_status "Available Primary IPs:"
-        hcloud primary-ip list --output columns=name,ip,assignee_id,location
+        hcloud primary-ip list --output columns=name,ip,type
         echo
 
         while true; do
@@ -477,14 +477,34 @@ show_azure_setup_instructions() {
     echo "3. Confirm by clicking 'Yes'"
     echo "4. Ensure all permissions show 'Granted for [organization]'"
     echo
-    print_highlight "📋 Step 11: Collect Required Information"
-    echo "From the Overview page, copy these values:"
+    print_highlight "📋 Step 11: Create Management App for User Enrichment (OPTIONAL)"
+    echo "⚠️  OPTIONAL: For better user display (names instead of GUIDs), create a second app:"
+    echo "1. Go to Azure AD > App Registrations > + New registration"
+    echo "2. Name: 'NetBird Management' (separate from your SPA app)"
+    echo "3. Supported account types: Single tenant"
+    echo "4. No redirect URIs needed"
+    echo "5. Click 'Register'"
+    echo "6. Go to Certificates & secrets > + New client secret"
+    echo "7. Description: 'NetBird Management Secret', Expires: 24 months"
+    echo "8. Copy the secret VALUE immediately (you won't see it again)"
+    echo "9. Go to API permissions > + Add permission > Microsoft Graph > Application permissions"
+    echo "10. Add: User.Read.All (required), Directory.Read.All (recommended)"
+    echo "11. Click 'Grant admin consent for [organization]' and confirm"
+    echo "12. Copy: Application (client) ID and Object ID from Overview page"
+    echo
+    print_highlight "📋 Step 12: Collect Required Information"
+    echo "From your SPA app Overview page, copy these values:"
     echo "• Application (client) ID"
     echo "• Directory (tenant) ID"
     echo "• Object ID"
-    echo "• NO CLIENT SECRET NEEDED for public client configuration"
+    echo "• NO CLIENT SECRET NEEDED for SPA configuration"
     echo
-    print_highlight "📋 Step 12: Final Verification Checklist"
+    echo "From your Management app (if created), copy these values:"
+    echo "• Management App Client ID"
+    echo "• Management App Client Secret"
+    echo "• Management App Object ID"
+    echo
+    print_highlight "📋 Step 13: Final Verification Checklist"
     echo "⚠️  VERIFY ALL PLATFORMS ARE CONFIGURED:"
     echo "• ✅ Single-page application platform with web redirect URIs"
     echo "• ✅ Mobile and desktop applications platform with client redirect URIs"
@@ -573,6 +593,40 @@ collect_azure_config() {
     done
 
     echo
+    print_header "=== Management App Configuration (Optional) ==="
+    echo "For enhanced user display (names instead of GUIDs), you can configure a management app."
+    echo "If you created a separate Management app as instructed above, enter its details:"
+    echo
+    read -p "Did you create a Management app for user enrichment? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        read -p "Management App Client ID: " MGMT_CLIENT_ID
+        while [[ ! "$MGMT_CLIENT_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; do
+            print_error "Please enter a valid management client ID (UUID format)"
+            read -p "Management App Client ID: " MGMT_CLIENT_ID
+        done
+
+        read -p "Management App Client Secret: " MGMT_CLIENT_SECRET
+        while [[ -z "$MGMT_CLIENT_SECRET" ]]; do
+            print_error "Management client secret cannot be empty"
+            read -p "Management App Client Secret: " MGMT_CLIENT_SECRET
+        done
+
+        read -p "Management App Object ID: " MGMT_OBJECT_ID
+        while [[ ! "$MGMT_OBJECT_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; do
+            print_error "Please enter a valid management object ID (UUID format)"
+            read -p "Management App Object ID: " MGMT_OBJECT_ID
+        done
+
+        print_success "Management app configuration will be enabled for user enrichment"
+    else
+        print_status "Skipping management app - users will display as GUIDs until configured later"
+        MGMT_CLIENT_ID=""
+        MGMT_CLIENT_SECRET=""
+        MGMT_OBJECT_ID=""
+    fi
+
+    echo
     print_header "=== Configuration Summary ==="
     echo "Customer: $CUSTOMER_NAME"
     echo "Server Name: $SERVER_NAME"
@@ -581,6 +635,13 @@ collect_azure_config() {
     echo "Client ID: $AZURE_CLIENT_ID"
     echo "Object ID: $AZURE_OBJECT_ID"
     echo "Authentication: Universal Public Client with PKCE (no client secret)"
+    if [[ -n "$MGMT_CLIENT_ID" ]]; then
+        echo "Management App: Enabled for user enrichment"
+        echo "Management Client ID: $MGMT_CLIENT_ID"
+        echo "Management Object ID: $MGMT_OBJECT_ID"
+    else
+        echo "Management App: Not configured (users will show as GUIDs)"
+    fi
     echo "Let's Encrypt Email: $LETSENCRYPT_EMAIL"
     echo
     echo "Azure AD Redirect URIs configured:"
@@ -1189,7 +1250,21 @@ echo "Latest version: $LATEST_TAG"
 
 # Clone NetBird repository
 git clone --depth 1 --branch $LATEST_TAG $REPO
+
+# Verify clone succeeded and directory exists
+if [ ! -d "netbird" ]; then
+    echo "ERROR: Git clone failed - netbird directory not found"
+    echo "Directory contents:"
+    ls -la
+    exit 1
+fi
+
 cd netbird/infrastructure_files/
+
+# Verify we're in the right place
+echo "Current directory: $(pwd)"
+echo "Directory contents:"
+ls -la
 
 # Copy example configuration
 cp setup.env.example setup.env
@@ -1229,7 +1304,19 @@ EOF
         return 1
     fi
 
-    print_success "NetBird installation files prepared"
+    # Wait a moment for filesystem to settle
+    sleep 2
+
+    # Verify installation completed successfully
+    print_status "Verifying installation..."
+    if ! ssh -o StrictHostKeyChecking=no root@$server_ip "test -d /opt/netbird/netbird/infrastructure_files && test -f /opt/netbird/netbird/infrastructure_files/configure.sh"; then
+        print_error "Installation verification failed - required directories/files not found"
+        print_status "Checking what was created..."
+        ssh -o StrictHostKeyChecking=no root@$server_ip "ls -la /opt/netbird/ 2>&1 || echo 'Directory not found'"
+        return 1
+    fi
+
+    print_success "NetBird installation files prepared and verified"
 }
 
 # Function to configure NetBird with Universal Azure AD authentication
@@ -1245,6 +1332,26 @@ configure_netbird() {
     cat > /tmp/netbird-configure.sh << EOF
 #!/bin/bash
 set -e
+
+# Debug: Check what exists
+echo "=== Debugging Directory Structure ==="
+echo "Contents of /opt/netbird:"
+ls -la /opt/netbird/ || echo "Directory /opt/netbird does not exist"
+echo
+echo "Looking for netbird subdirectory:"
+ls -la /opt/netbird/netbird/ || echo "Directory /opt/netbird/netbird does not exist"
+echo
+echo "Looking for infrastructure_files:"
+ls -la /opt/netbird/netbird/infrastructure_files/ || echo "Directory /opt/netbird/netbird/infrastructure_files does not exist"
+echo "=== End Debug ==="
+echo
+
+# Try to cd into the directory
+if [ ! -d "/opt/netbird/netbird/infrastructure_files" ]; then
+    echo "ERROR: Directory /opt/netbird/netbird/infrastructure_files does not exist!"
+    echo "Installation may have failed. Please check the installation logs."
+    exit 1
+fi
 
 cd /opt/netbird/netbird/infrastructure_files/
 
@@ -1270,34 +1377,46 @@ NETBIRD_TOKEN_SOURCE="idToken"
 # Device Authentication (disabled for Azure AD)
 NETBIRD_AUTH_DEVICE_AUTH_PROVIDER="none"
 
-# Management Service Azure AD Integration (disabled for SPA applications)
+# Management Service Azure AD Integration
 #
-# IMPORTANT: For SPA (Single Page Application) configurations, we disable server-side
-# Azure AD user management because:
-# 1. SPA applications don't use client secrets (they use PKCE flow)
-# 2. Server-side user management requires client_credentials flow (needs client secret)
-# 3. Users will authenticate directly through the web dashboard using secure PKCE flow
-# 4. This prevents the management service from crashing due to missing ClientSecret
-#
-# If you need server-side user management, you would need to create a separate
-# Azure AD application with client credentials for the management service.
+# Server-side user enrichment via Azure Graph API
+# If enabled, NetBird will fetch user names/emails from Azure AD
+# instead of displaying user GUIDs in the dashboard
+EOF
+
+# Add management app configuration based on user input
+if [[ -n "$MGMT_CLIENT_ID" ]]; then
+cat >> setup.env << 'MGMT_CONFIG_EOF'
+NETBIRD_MGMT_IDP="azure"
+NETBIRD_IDP_MGMT_CLIENT_ID="$MGMT_CLIENT_ID"
+NETBIRD_IDP_MGMT_CLIENT_SECRET="$MGMT_CLIENT_SECRET"
+NETBIRD_IDP_MGMT_EXTRA_OBJECT_ID="$MGMT_OBJECT_ID"
+NETBIRD_IDP_MGMT_EXTRA_GRAPH_API_ENDPOINT="https://graph.microsoft.com/v1.0"
+MGMT_CONFIG_EOF
+else
+cat >> setup.env << 'NO_MGMT_CONFIG_EOF'
 NETBIRD_MGMT_IDP=""
 NETBIRD_IDP_MGMT_CLIENT_ID=""
 NETBIRD_IDP_MGMT_CLIENT_SECRET=""
 NETBIRD_IDP_MGMT_EXTRA_OBJECT_ID=""
 NETBIRD_IDP_MGMT_EXTRA_GRAPH_API_ENDPOINT=""
+NO_MGMT_CONFIG_EOF
+fi
+
+cat >> setup.env << 'FINAL_CONFIG_EOF'
 
 # Optional: Single account mode (recommended for most deployments)
 # This ensures all users join the same NetBird account/network
 NETBIRD_MGMT_SINGLE_ACCOUNT_MODE=true
-CONFIG_EOF
+FINAL_CONFIG_EOF
 
 echo "Configuration file created successfully"
 
 # Run the configuration script
 echo "Running NetBird configuration script..."
+cd /opt/netbird/netbird/infrastructure_files
 chmod +x configure.sh
-./configure.sh
+./configure.sh setup.env
 
 echo "NetBird configured successfully!"
 echo "Configuration files generated in: /opt/netbird/netbird/infrastructure_files/artifacts/"
@@ -1305,12 +1424,30 @@ echo "Configuration files generated in: /opt/netbird/netbird/infrastructure_file
 # Apply OAuth SPA fixes and nginx configuration
 echo "Applying OAuth SPA and nginx fixes..."
 
-# Fix 1: Update docker-compose.yml for SPA authentication (no client secret)
+cd /opt/netbird/netbird/infrastructure_files/artifacts/
+
+# Fix 1: Enable IDP signing key refresh to prevent token validation issues
+echo "Enabling IDP signing key refresh for Azure AD..."
+if [ -f management.json ]; then
+    # Check if jq is available
+    if command -v jq >/dev/null 2>&1; then
+        # Use jq to safely update the JSON
+        jq '.HttpConfig.IdpSignKeyRefreshEnabled = true' management.json > management.json.tmp && mv management.json.tmp management.json
+        echo "✓ IDP signing key refresh enabled in management.json"
+    else
+        # Fallback: use sed (less safe but works if jq isn't available)
+        sed -i 's|"IdpSignKeyRefreshEnabled": false|"IdpSignKeyRefreshEnabled": true|g' management.json
+        echo "✓ IDP signing key refresh enabled in management.json (via sed)"
+    fi
+else
+    echo "⚠ Warning: management.json not found, skipping IDP key refresh configuration"
+fi
+
+# Fix 2: Update docker-compose.yml for SPA authentication (no client secret)
 echo "Updating OAuth configuration for SPA authentication..."
-cd artifacts/
 sed -i 's|AUTH_CLIENT_SECRET=.*|AUTH_CLIENT_SECRET=|g' docker-compose.yml
 
-# Fix 2: Apply nginx SPA routing fix
+# Fix 3: Apply nginx SPA routing fix
 echo "Applying nginx SPA routing fix..."
 cat > /tmp/nginx-spa-fix.sh << 'NGINX_EOF'
 #!/bin/bash
@@ -1354,9 +1491,27 @@ EOF
 
     # Execute configuration on server
     print_status "Executing NetBird SPA configuration..."
-    if ! ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@$server_ip "bash -s" < /tmp/netbird-configure.sh; then
+
+    # Copy the configuration script to the server for better debugging
+    if ! scp -o StrictHostKeyChecking=no /tmp/netbird-configure.sh root@$server_ip:/tmp/netbird-configure.sh 2>/dev/null; then
+        print_error "Failed to copy configuration script to server"
+        return 1
+    fi
+
+    # Execute with better error handling
+    if ! ssh -o StrictHostKeyChecking=no -o ConnectTimeout=60 root@$server_ip "chmod +x /tmp/netbird-configure.sh && /tmp/netbird-configure.sh"; then
         print_error "NetBird configuration failed"
-        print_status "You can manually SSH and configure later"
+        print_status "The configuration script has been saved to /tmp/netbird-configure.sh on the server"
+        print_status "You can manually SSH and run: /tmp/netbird-configure.sh"
+        print_status "Or check what went wrong with: ssh root@$server_ip 'cat /tmp/netbird-configure.sh'"
+        return 1
+    fi
+
+    # Verify configuration produced the expected files
+    print_status "Verifying configuration..."
+    if ! ssh -o StrictHostKeyChecking=no root@$server_ip "test -f /opt/netbird/netbird/infrastructure_files/artifacts/docker-compose.yml"; then
+        print_error "Configuration verification failed - docker-compose.yml not found"
+        print_status "Configuration may have partially completed. Check /opt/netbird/netbird/infrastructure_files/artifacts/"
         return 1
     fi
 
@@ -1831,6 +1986,13 @@ show_summary() {
     echo "  Client ID: $AZURE_CLIENT_ID"
     echo "  Authentication: PKCE (no client secret)"
     echo "  OIDC Endpoint: https://login.microsoftonline.com/$AZURE_TENANT_ID/v2.0/.well-known/openid-configuration"
+    if [[ -n "$MGMT_CLIENT_ID" ]]; then
+        echo "  User Enrichment: Enabled via Management App"
+        echo "  Management Client ID: $MGMT_CLIENT_ID"
+    else
+        echo "  User Enrichment: Disabled (users display as GUIDs)"
+        echo "  Note: To enable later, configure management app and update setup.env"
+    fi
     echo
     echo "═══════════════════════════════════════════════════════════════"
     echo "  🚨 CRITICAL NEXT STEPS - COMPLETE THESE NOW!"
@@ -2163,6 +2325,14 @@ show_summary() {
     echo "   • Ensure API scope 'api' exists and is enabled"
     echo "   • Check NetBird management server logs"
     echo
+    echo "5. Users show as GUIDs instead of names:"
+    echo "   • Management app not configured or misconfigured"
+    echo "   • Check Graph API permissions: User.Read.All required"
+    echo "   • Verify management app has admin consent granted"
+    echo "   • Ensure users have displayName, mail fields in Azure AD"
+    echo "   • Delete GUID user in dashboard, log out/in to refresh"
+    echo "   • Check logs: ssh root@$server_ip '/root/netbird-management.sh logs | grep -i graph'"
+    echo
     echo "═══════════════════════════════════════════════════════════════"
 
     print_success "🎉 NetBird self-hosted deployment completed successfully!"
@@ -2307,7 +2477,7 @@ list_server_aliases() {
 # Function to show usage
 show_usage() {
     cat << EOF
-NetBird Self-Hosted Deployment Script v2.2.0 (Enhanced with SPA OAuth)
+NetBird Self-Hosted Deployment Script v2.3.0 (Enhanced with SPA OAuth & Token Refresh)
 
 Usage: $0 [options]
        $0 list-servers
@@ -2324,6 +2494,9 @@ Options:
   --client-id <id>       Azure AD Application (client) ID
   --client-secret <secret> Azure AD Client Secret (not needed for SPA config)
   --object-id <id>       Azure AD Object ID
+  --mgmt-client-id <id>  Management App Client ID (for user enrichment)
+  --mgmt-secret <secret> Management App Client Secret (for user enrichment)
+  --mgmt-object-id <id>  Management App Object ID (for user enrichment)
   --email <email>        Let's Encrypt email
   --server-name <name>   Custom server name (default: netbird-selfhosted-<customer>)
   --server-type <type>   Server type (default: cax11)
@@ -2351,13 +2524,23 @@ Examples:
   # Use specific Primary IP by IP address
   $0 --customer "Acme Corp" --ip 192.168.1.100
 
-  # Non-interactive mode
+  # Non-interactive mode (SPA only)
   ./deploy-netbird-selfhosted.sh --customer "Acme Corp" \
      --domain netbird.company.com \
      --tenant-id "12345678-1234-1234-1234-123456789012" \
      --client-id "87654321-4321-4321-4321-210987654321" \
-     --client-secret "your-secret-here" \
      --object-id "11111111-2222-3333-4444-555555555555" \
+     --email admin@company.com
+
+  # Non-interactive mode with user enrichment
+  ./deploy-netbird-selfhosted.sh --customer "Acme Corp" \
+     --domain netbird.company.com \
+     --tenant-id "12345678-1234-1234-1234-123456789012" \
+     --client-id "87654321-4321-4321-4321-210987654321" \
+     --object-id "11111111-2222-3333-4444-555555555555" \
+     --mgmt-client-id "22222222-3333-4444-5555-666666666666" \
+     --mgmt-secret "management-app-secret-value" \
+     --mgmt-object-id "33333333-4444-5555-6666-777777777777" \
      --email admin@company.com
 
 What this script creates:
@@ -2401,6 +2584,18 @@ parse_arguments() {
                 ;;
             --object-id)
                 AZURE_OBJECT_ID="$2"
+                shift 2
+                ;;
+            --mgmt-client-id)
+                MGMT_CLIENT_ID="$2"
+                shift 2
+                ;;
+            --mgmt-secret)
+                MGMT_CLIENT_SECRET="$2"
+                shift 2
+                ;;
+            --mgmt-object-id)
+                MGMT_OBJECT_ID="$2"
                 shift 2
                 ;;
             --email)
@@ -2490,7 +2685,7 @@ main() {
     check_prerequisites
 
     # Collect Azure AD configuration if not provided via command line
-    if [ -z "$NETBIRD_DOMAIN" ] || [ -z "$AZURE_TENANT_ID" ] || [ -z "$AZURE_CLIENT_ID" ] || [ -z "$AZURE_CLIENT_SECRET" ] || [ -z "$AZURE_OBJECT_ID" ] || [ -z "$LETSENCRYPT_EMAIL" ]; then
+    if [ -z "$NETBIRD_DOMAIN" ] || [ -z "$AZURE_TENANT_ID" ] || [ -z "$AZURE_CLIENT_ID" ] || [ -z "$AZURE_OBJECT_ID" ] || [ -z "$LETSENCRYPT_EMAIL" ]; then
         collect_azure_config
     fi
 
@@ -2504,7 +2699,7 @@ main() {
         fi
     fi
 
-    # Validate configuration (note: client secret not required for SPA)
+    # Validate configuration (note: client secret and management app not required for SPA)
     if [ -z "$NETBIRD_DOMAIN" ] || [ -z "$AZURE_TENANT_ID" ] || [ -z "$AZURE_CLIENT_ID" ] || [ -z "$AZURE_OBJECT_ID" ] || [ -z "$LETSENCRYPT_EMAIL" ]; then
         print_error "Missing required configuration. Please provide all Azure AD details."
         exit 1
@@ -2523,6 +2718,11 @@ main() {
     fi
     echo "Identity Provider: Azure AD (SPA with PKCE)"
     echo "Authentication: No client secret (PKCE-only)"
+    if [[ -n "$MGMT_CLIENT_ID" ]]; then
+        echo "User Enrichment: Enabled (Management App configured)"
+    else
+        echo "User Enrichment: Disabled (users will show as GUIDs)"
+    fi
     echo "Firewall: $FIREWALL_NAME"
     echo "Estimated cost: ~€3.79/month"
     echo

@@ -1,13 +1,14 @@
 # NetBird Self-Hosted Deployment Tool
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-2.2.0-blue.svg)](https://github.com/Panoptic-IT-Solutions/netbird-selfhosted-deployer)
+[![Version](https://img.shields.io/badge/version-2.3.0-blue.svg)](https://github.com/Panoptic-IT-Solutions/netbird-selfhosted-deployer)
 
-A comprehensive deployment tool for setting up NetBird self-hosted infrastructure on Hetzner Cloud with Azure AD Single Page Application (SPA) authentication.
+A comprehensive deployment tool for setting up NetBird self-hosted infrastructure on Hetzner Cloud with Azure AD Single Page Application (SPA) authentication and automatic token refresh management.
 
 ## 🚀 Features
 
 - **Azure AD SPA Integration**: Modern OAuth2 PKCE-based authentication (no client secrets required)
+- **Token Refresh Management**: Automatic IDP signing key refresh to prevent 401 authentication errors
 - **Automated Infrastructure**: Complete Hetzner Cloud setup including servers, firewalls, and networking
 - **SSL Certificate Management**: Automatic Let's Encrypt certificate provisioning
 - **Nginx SPA Routing**: Fixed OAuth callback handling for Single Page Applications
@@ -219,21 +220,29 @@ ssh nb2 '/root/netbird-management.sh test'      # Test connectivity
 - [Advanced Configuration](./docs/ADVANCED-CONFIG.md) - Custom setups and modifications
 - [Security Best Practices](./docs/SECURITY.md) - Hardening your deployment
 
-## 🔍 What's Fixed in v2.2.0
+## 🔍 What's New in v2.3.0
 
-This version addresses critical issues found in standard NetBird deployments:
+### Token Refresh & Session Management ✅
+- **Automatic IDP Signing Key Refresh**: Prevents 401 token validation errors when Azure AD rotates keys
+- **Enhanced Token Handling**: Better long-running session support with `offline_access` scope
+- **Improved Error Handling**: More robust directory structure verification during deployment
+- **Configuration Verification**: Post-installation checks ensure all required files are present
 
-### OAuth Authentication Issues ✅
+### Previous Fixes (v2.2.0)
+
+This version builds on critical fixes from v2.2.0:
+
+#### OAuth Authentication Issues ✅
 - **400 Bad Request errors** during token exchange
 - **PKCE vs Client Secret conflicts**
 - **Token exchange failures**
 
-### Nginx Configuration Issues ✅
+#### Nginx Configuration Issues ✅
 - **404 errors** on `/auth` callback routes
 - **SPA routing** problems with OAuth callbacks
 - **Incorrect try_files directive**
 
-### New Management Features ✅
+#### Management Features ✅
 - **Enhanced Management Script**: Comprehensive server monitoring and management
 - **SSH Alias System**: Short, practical aliases for easy server access (e.g., `ssh nb2`)
 - **Custom IP Assignment**: Use existing Primary IPs for stable network configuration
@@ -242,10 +251,11 @@ This version addresses critical issues found in standard NetBird deployments:
 - **Backup Management**: Automated configuration backup and restore capabilities
 
 ### Key Technical Improvements
+- **IDP signing key refresh enabled** in management.json to handle Azure AD key rotation
 - Proper Azure AD SPA configuration (PKCE-only)
 - Fixed nginx configuration for SPA routing
-- Enhanced error handling and logging
-- Comprehensive setup validation
+- Enhanced error handling and logging with debugging output
+- Comprehensive setup validation with directory existence checks
 - Automatic SSH known hosts and alias management with short, practical aliases
 - Custom IP assignment using Hetzner Primary IPs
 - Integrated server management tools
