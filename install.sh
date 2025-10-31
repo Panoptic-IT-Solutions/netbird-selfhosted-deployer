@@ -7,7 +7,7 @@
 
 set -e
 
-VERSION="2.2.0"
+VERSION="2.3.0"
 REPO_URL="https://github.com/Panoptic-IT-Solutions/netbird-selfhosted-deployer"
 RAW_URL="https://raw.githubusercontent.com/Panoptic-IT-Solutions/netbird-selfhosted-deployer/main"
 
@@ -186,10 +186,7 @@ show_next_steps() {
     echo "1. Navigate to the installation directory:"
     echo -e "   ${CYAN}cd $install_dir${NC}"
     echo
-    echo "2. Review the Azure AD setup guide:"
-    echo -e "   ${CYAN}cat AZURE-AD-SPA-SETUP.md${NC}"
-    echo
-    echo "3. Run the deployment script:"
+    echo "2. Run the deployment script (includes Azure AD setup guidance):"
     echo -e "   ${CYAN}./deploy-netbird-selfhosted.sh${NC}"
     echo
     print_header "Prerequisites Required:"
