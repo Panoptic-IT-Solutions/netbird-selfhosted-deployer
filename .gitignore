@@ -1,0 +1,49 @@
+# NetBird Deployment - Generated/Sensitive Files
+
+# Generated configuration files (may contain secrets)
+setup.env
+*.env
+!setup.env.example
+
+# Temporary files
+*.tmp
+*.bak
+*.backup
+/tmp/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Linux
+*~
+.directory
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# SSH keys
+*.pem
+*.key
+id_rsa*
+*.pub
+
+# Logs
+*.log
+logs/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Hetzner Cloud
+.hcloud/
+
+# Local testing
+test-*
+local-*
