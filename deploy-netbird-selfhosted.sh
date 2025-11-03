@@ -14,7 +14,7 @@
 
 set -e
 
-VERSION="2.2.0"
+VERSION="2.4.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Configuration
@@ -1433,7 +1433,12 @@ fi
 echo "Updating OAuth configuration for SPA authentication..."
 sed -i 's|AUTH_CLIENT_SECRET=.*|AUTH_CLIENT_SECRET=|g' docker-compose.yml
 
-# Fix 3: Apply nginx SPA routing fix
+# Fix 3: Fix Signal service port mapping
+echo "Fixing Signal service port mapping..."
+sed -i 's|- 10000:80|- 10000:10000|g' docker-compose.yml
+echo "✓ Signal port mapping corrected (10000:10000)"
+
+# Fix 4: Apply nginx SPA routing fix
 echo "Applying nginx SPA routing fix..."
 cat > /tmp/nginx-spa-fix.sh << 'NGINX_EOF'
 #!/bin/bash
