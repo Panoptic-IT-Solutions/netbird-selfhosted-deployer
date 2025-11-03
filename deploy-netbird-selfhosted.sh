@@ -1363,7 +1363,8 @@ cd /opt/netbird/netbird/infrastructure_files/
 echo "Configuring NetBird setup.env with Universal Azure AD..."
 
 # Create setup.env with Universal Azure AD configuration
-cat > setup.env << 'CONFIG_EOF'
+# Using direct variable substitution for reliability
+cat > setup.env <<SETUP_EOF
 # NetBird Domain Configuration
 NETBIRD_DOMAIN="$NETBIRD_DOMAIN"
 NETBIRD_LETSENCRYPT_EMAIL="$LETSENCRYPT_EMAIL"
@@ -1378,42 +1379,22 @@ NETBIRD_AUTH_REDIRECT_URI="/auth"
 NETBIRD_AUTH_SILENT_REDIRECT_URI="/silent-auth"
 NETBIRD_AUTH_USER_ID_CLAIM="oid"
 NETBIRD_TOKEN_SOURCE="idToken"
-
-# Device Authentication (disabled for Azure AD)
 NETBIRD_AUTH_DEVICE_AUTH_PROVIDER="none"
 
 # Management Service Azure AD Integration
-#
-# Server-side user enrichment via Azure Graph API
-# If enabled, NetBird will fetch user names/emails from Azure AD
-# instead of displaying user GUIDs in the dashboard
-EOF
-
-# Add management app configuration based on user input
-if [[ -n "$MGMT_CLIENT_ID" ]]; then
-cat >> setup.env << 'MGMT_CONFIG_EOF'
-NETBIRD_MGMT_IDP="azure"
-NETBIRD_IDP_MGMT_CLIENT_ID="$MGMT_CLIENT_ID"
-NETBIRD_IDP_MGMT_CLIENT_SECRET="$MGMT_CLIENT_SECRET"
-NETBIRD_IDP_MGMT_EXTRA_OBJECT_ID="$MGMT_OBJECT_ID"
+NETBIRD_MGMT_IDP="${MGMT_CLIENT_ID:+azure}"
+NETBIRD_IDP_MGMT_CLIENT_ID="${MGMT_CLIENT_ID:-}"
+NETBIRD_IDP_MGMT_CLIENT_SECRET="${MGMT_CLIENT_SECRET:-}"
+NETBIRD_IDP_MGMT_EXTRA_OBJECT_ID="${MGMT_OBJECT_ID:-}"
 NETBIRD_IDP_MGMT_EXTRA_GRAPH_API_ENDPOINT="https://graph.microsoft.com/v1.0"
-MGMT_CONFIG_EOF
-else
-cat >> setup.env << 'NO_MGMT_CONFIG_EOF'
-NETBIRD_MGMT_IDP=""
-NETBIRD_IDP_MGMT_CLIENT_ID=""
-NETBIRD_IDP_MGMT_CLIENT_SECRET=""
-NETBIRD_IDP_MGMT_EXTRA_OBJECT_ID=""
-NETBIRD_IDP_MGMT_EXTRA_GRAPH_API_ENDPOINT=""
-NO_MGMT_CONFIG_EOF
-fi
 
-cat >> setup.env << 'FINAL_CONFIG_EOF'
-
-# Optional: Single account mode (recommended for most deployments)
-# This ensures all users join the same NetBird account/network
+# Optional settings
+NETBIRD_DISABLE_LETSENCRYPT=false
 NETBIRD_MGMT_SINGLE_ACCOUNT_MODE=true
-FINAL_CONFIG_EOF
+SETUP_EOF
+
+echo "setup.env created with actual values"
+cat setup.env
 
 echo "Configuration file created successfully"
 
