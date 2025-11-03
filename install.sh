@@ -156,6 +156,11 @@ setup_deployer() {
     curl -fsSL "$RAW_URL/deploy-netbird-selfhosted.sh" -o deploy-netbird-selfhosted.sh
     chmod +x deploy-netbird-selfhosted.sh
 
+    # Download enhanced management script
+    print_status "Downloading enhanced management script..."
+    curl -fsSL "$RAW_URL/netbird-management-enhanced.sh" -o netbird-management-enhanced.sh
+    chmod +x netbird-management-enhanced.sh
+
     # Download Azure AD setup guide
     print_status "Downloading Azure AD setup guide..."
     curl -fsSL "$RAW_URL/AZURE-AD-SPA-SETUP.md" -o AZURE-AD-SPA-SETUP.md
