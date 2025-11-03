@@ -1307,12 +1307,17 @@ EOF
     # Wait a moment for filesystem to settle
     sleep 2
 
-    # Verify installation completed successfully
+    # Verify installation completed successfully with detailed debugging
     print_status "Verifying installation..."
+
+    # Show what was created
+    print_status "Checking directory structure..."
+    ssh -o StrictHostKeyChecking=no root@$server_ip "echo '=== /opt directory ===' && ls -la /opt/ && echo '=== /opt/netbird ===' && ls -la /opt/netbird/ 2>&1 || echo '/opt/netbird not found' && echo '=== /opt/netbird/netbird ===' && ls -la /opt/netbird/netbird/ 2>&1 || echo '/opt/netbird/netbird not found'"
+
     if ! ssh -o StrictHostKeyChecking=no root@$server_ip "test -d /opt/netbird/netbird/infrastructure_files && test -f /opt/netbird/netbird/infrastructure_files/configure.sh"; then
         print_error "Installation verification failed - required directories/files not found"
-        print_status "Checking what was created..."
-        ssh -o StrictHostKeyChecking=no root@$server_ip "ls -la /opt/netbird/ 2>&1 || echo 'Directory not found'"
+        print_status "Full diagnostic output shown above"
+        print_status "You can manually check with: ssh root@$server_ip 'find /opt -name infrastructure_files'"
         return 1
     fi
 
