@@ -7,7 +7,7 @@
 
 set -e
 
-VERSION="2.3.0"
+VERSION="2.4.0"
 REPO_URL="https://github.com/Panoptic-IT-Solutions/netbird-selfhosted-deployer"
 RAW_URL="https://raw.githubusercontent.com/Panoptic-IT-Solutions/netbird-selfhosted-deployer/main"
 
