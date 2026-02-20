@@ -1,0 +1,155 @@
+# NetBird Template
+# Template for deploying NetBird servers and clients
+
+name: "netbird"
+description: "NetBird mesh network server configuration"
+version: "1.0"
+
+# Default configuration
+defaults:
+  server_type: "cax11"       # ARM-based, cost-effective
+  image: "ubuntu-24.04"      # Latest Ubuntu LTS
+  location: "nbg1"           # Nuremberg (EU-Central)
+
+# Networking
+network:
+  ipv4: true
+  ipv6: true
+  firewall: "netbird-firewall"   # Custom firewall for NetBird
+
+# Tags and labels
+labels:
+  environment: "test"
+  role: "netbird-node"
+  managed-by: "hcloud-multi"
+  backup: "disabled"
+  purpose: "mesh-networking"
+
+# Post-deployment scripts
+user_data: |
+  #!/bin/bash
+  set -e
+
+  # Update system
+  apt update && apt upgrade -y
+
+  # Install NetBird
+  curl -fsSL https://pkgs.netbird.io/install.sh | sh
+
+  # Install additional tools
+  apt install -y curl wget htop iperf3 tcpdump wireguard-tools
+
+  # Basic firewall setup for NetBird
+  ufw allow 22/tcp          # SSH
+  ufw allow 51820/udp       # NetBird default port
+  ufw allow 33073/udp       # NetBird STUN
+  ufw --force enable
+
+  # Create NetBird systemd service override
+  mkdir -p /etc/systemd/system/netbird.service.d
+  cat > /etc/systemd/system/netbird.service.d/override.conf << 'EOF'
+  [Service]
+  # Auto-restart NetBird if it fails
+  Restart=always
+  RestartSec=5
+
+  # Environment variables
+  Environment="NB_LOG_LEVEL=info"
+  Environment="NB_DISABLE_AUTO_UPDATE=true"
+  EOF
+
+  # Enable NetBird service (will start after setup key is provided)
+  systemctl daemon-reload
+  systemctl enable netbird
+
+  # Create setup script for NetBird
+  cat > /root/setup-netbird.sh << 'EOF'
+  #!/bin/bash
+  echo "NetBird Setup Script"
+  echo "==================="
+  echo "To connect this server to your NetBird network:"
+  echo "1. Get your setup key from NetBird dashboard"
+  echo "2. Run: netbird up --setup-key YOUR_SETUP_KEY"
+  echo "3. Check status: netbird status"
+  echo
+  echo "Useful commands:"
+  echo "  netbird status           # Show connection status"
+  echo "  netbird down            # Disconnect from network"
+  echo "  netbird list            # List network peers"
+  echo "  netbird version         # Show NetBird version"
+  echo
+  EOF
+  chmod +x /root/setup-netbird.sh
+
+  # Create motd with NetBird info
+  cat > /etc/motd << 'EOF'
+
+   _   _      _   ____  _         _
+  | \ | | ___| |_| __ )(_)_ __ __| |
+  |  \| |/ _ \ __|  _ \| | '__/ _` |
+  | |\  |  __/ |_| |_) | | | | (_| |
+  |_| \_|\___|\__|____/|_|_|  \__,_|
+
+  NetBird Server Ready!
+  Run: /root/setup-netbird.sh for instructions
+
+  EOF
+
+  # Log successful installation
+  echo "$(date): NetBird installation completed" >> /var/log/netbird-setup.log
+
+# Cost estimate
+cost:
+  monthly_estimate: "€3.79"
+  breakdown:
+    server: "€3.29"    # CAX11 ARM server
+    ipv4: "€0.50"      # IPv4 address
+
+# NetBird specific configuration
+netbird:
+  default_port: 51820
+  stun_port: 33073
+  admin_url: "https://app.netbird.io"
+  management_grpc: "api.wiretrustee.com:443"
+
+  # Firewall rules for NetBird
+  firewall_rules:
+    - name: "ssh"
+      port: "22"
+      protocol: "tcp"
+      direction: "in"
+    - name: "netbird-wireguard"
+      port: "51820"
+      protocol: "udp"
+      direction: "in"
+    - name: "netbird-stun"
+      port: "33073"
+      protocol: "udp"
+      direction: "in"
+
+# Performance tuning for mesh networking
+performance:
+  kernel_parameters:
+    - "net.core.default_qdisc = fq"
+    - "net.ipv4.tcp_congestion_control = bbr"
+    - "net.core.rmem_max = 26214400"
+    - "net.core.rmem_default = 26214400"
+    - "net.core.wmem_max = 26214400"
+    - "net.core.wmem_default = 26214400"
+
+# Monitoring and logging
+monitoring:
+  log_level: "info"
+  metrics_enabled: true
+  log_retention: "7d"
+
+# Backup configuration
+backup:
+  enabled: false           # No sensitive data to backup
+  config_backup: true      # Backup NetBird config only
+
+# Scaling options
+scaling:
+  min_servers: 1
+  max_servers: 5
+  purpose: "mesh-node"     # Each server is an independent mesh node

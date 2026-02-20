@@ -1,0 +1,74 @@
+# Web Server Template
+# Template for deploying web application servers
+
+name: "web-server"
+description: "Standard web server configuration"
+version: "1.0"
+
+# Default configuration
+defaults:
+  server_type: "cax21" # ARM 4 vCPU, 8GB RAM
+  image: "ubuntu-24.04" # Latest Ubuntu LTS
+  location: "nbg1" # Nuremberg (EU-Central)
+
+# Networking
+network:
+  ipv4: true
+  ipv6: true
+  firewall: "web-firewall" # Optional firewall to apply
+
+# Tags and labels
+labels:
+  environment: "production"
+  role: "web-server"
+  managed-by: "hcloud-multi"
+  backup: "enabled"
+
+# Post-deployment scripts
+user_data: |
+  #!/bin/bash
+  apt update && apt upgrade -y
+  apt install -y nginx certbot python3-certbot-nginx
+  systemctl enable nginx
+  systemctl start nginx
+
+  # Basic security
+  ufw allow 22/tcp
+  ufw allow 80/tcp
+  ufw allow 443/tcp
+  ufw --force enable
+
+  # Create welcome page
+  cat > /var/www/html/index.html << 'EOF'
+  <!DOCTYPE html>
+  <html>
+  <head>
+      <title>Server Ready</title>
+  </head>
+  <body>
+      <h1>Web Server is Ready!</h1>
+      <p>Server: $(hostname)</p>
+      <p>Time: $(date)</p>
+  </body>
+  </html>
+  EOF
+
+# Cost estimate
+cost:
+  monthly_estimate: "€6.33"
+  breakdown:
+    server: "€5.83"
+    ipv4: "€0.50"
+
+# Scaling options
+scaling:
+  min_servers: 1
+  max_servers: 10
+  scale_metric: "cpu"
+  scale_threshold: 80
+
+# Backup configuration
+backup:
+  enabled: true
+  schedule: "daily"
+  retention: "7d"

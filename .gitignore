@@ -1,0 +1,65 @@
+# Environment files (may contain secrets)
+.env*
+!.env.example
+
+# SSH keys and credentials
+.ssh-keys/
+.entra-credentials/
+*.pem
+*.key
+id_rsa*
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Linux
+*~
+.directory
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.bak
+*.backup
+/tmp/
+
+# Logs
+*.log
+logs/
+
+# Hetzner Cloud
+.hcloud/
+
+# Local testing
+local-*
+
+# Old packaged version (subdirectory has its own .git)
+netbird-selfhosted-deployer/
+
+# Non-core scripts (internal tooling, not for colleagues)
+create-netbird-server.sh
+hcloud-create-server-interactive.sh
+hcloud-multi.sh
+manage-netbird-server.sh
+demo-interactive.sh
+check_invoice_domains.sh
+test-*.sh
+setup-hcloud.sh
+netbird-management-enhanced.sh
+
+# Archives
+*.zip
+
+# Claude workspace
+.claude/
