@@ -60,9 +60,11 @@ The script will guide you through:
 ### Manage SSH keys for colleagues
 
 ```bash
-./manage-ssh-keys.sh list               # List configured keys
-./manage-ssh-keys.sh add <email>        # Add a colleague's key
-./manage-ssh-keys.sh remove <email>     # Remove a key
+./manage-ssh-keys.sh connect                          # Set up SSH access to a colleague's server (interactive)
+./manage-ssh-keys.sh init <project> --vault Netbird    # Generate SSH key in 1Password
+./manage-ssh-keys.sh add <server> /path/to/key.pub     # Add a colleague's public key to a server
+./manage-ssh-keys.sh remove <server> <fingerprint>     # Remove a key by fingerprint
+./manage-ssh-keys.sh list <server>                     # List authorized keys on a server
 ```
 
 ## Architecture
@@ -81,6 +83,9 @@ lib/
 ## What's New in v3.0.0
 
 - **1Password SSH integration** — SSH keys managed via `op` CLI, no local key files
+- **`connect` command** — one-step SSH setup for colleagues sharing a 1Password vault: lists Hetzner servers, configures `agent.toml` and SSH config automatically
+- **Cross-platform support** — 1Password agent socket resolved automatically on macOS, Linux, and WSL
+- **Automatic update check** — deploy, manage, and install scripts check GitHub for newer releases on startup
 - **Modular library architecture** — shared `lib/` modules instead of monolithic scripts
 - **One-liner installer** — single `curl | bash` to get started
 - **Template-based config** — NetBird YAML templates in `templates/`
