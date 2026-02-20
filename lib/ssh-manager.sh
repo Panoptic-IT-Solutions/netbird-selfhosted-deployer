@@ -41,6 +41,15 @@ _ssh_mode() {
     echo "${SSH_BACKEND}"
 }
 
+# Return the correct 1Password SSH agent socket path for the current OS
+_1p_agent_sock() {
+    if [[ "$(uname)" == "Darwin" ]]; then
+        echo "$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+    else
+        echo "$HOME/.1password/agent.sock"
+    fi
+}
+
 # Internal SSH command helper used by all functions that SSH into servers
 _ssh_cmd() {
     local target="$1"; shift
@@ -297,14 +306,16 @@ ssh_generate_config() {
         local pubkey_file="${SSH_KEYS_DIR}/${project_name}.pub"
         local pubkey
         pubkey="$(ssh_get_public_key "${project_name}" "${vault}" 2>/dev/null)" || true
+        local agent_sock
+        agent_sock="$(_1p_agent_sock)"
         if [[ -n "${pubkey}" ]]; then
             echo "${pubkey}" > "${pubkey_file}"
             chmod 644 "${pubkey_file}"
-            identity_line="    IdentityAgent \"~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock\"
+            identity_line="    IdentityAgent \"${agent_sock}\"
     IdentityFile ${pubkey_file}
     IdentitiesOnly yes"
         else
-            identity_line="    IdentityAgent \"~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock\""
+            identity_line="    IdentityAgent \"${agent_sock}\""
         fi
     fi
 

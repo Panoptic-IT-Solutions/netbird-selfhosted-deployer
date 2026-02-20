@@ -417,6 +417,7 @@ EOF
 
 # Main function
 main() {
+    check_for_updates "${VERSION}"
     check_prerequisites
 
     case "${1:-help}" in

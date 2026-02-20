@@ -1836,6 +1836,9 @@ main() {
     # Show banner
     show_banner
 
+    # Prompt if a newer version is available on GitHub
+    check_for_updates "${VERSION}"
+
     # Check prerequisites
     check_prerequisites
 

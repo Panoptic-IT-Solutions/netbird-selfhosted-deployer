@@ -29,6 +29,54 @@ print_header()  { echo -e "${PURPLE}$1${NC}"; }
 
 command_exists() { command -v "$1" >/dev/null 2>&1; }
 
+# Prompt helper: read yes/no with default
+read_yes_no() {
+    local prompt="$1"
+    local default="${2:-n}"
+    while true; do
+        if [ "$default" = "y" ]; then
+            read -p "$prompt (Y/n): " -r REPLY
+        else
+            read -p "$prompt (y/N): " -r REPLY
+        fi
+        if [ -z "$REPLY" ]; then
+            [[ "$default" = "y" ]] && return 0 || return 1
+        fi
+        case $REPLY in
+            [Yy]* ) return 0;; [Nn]* ) return 1;; * ) echo "Please answer yes or no.";;
+        esac
+    done
+}
+
+check_for_updates() {
+    command_exists curl || return 0
+    local repo_path="Panoptic-IT-Solutions/netbird-selfhosted-deployer"
+    local latest_tag
+    latest_tag="$(curl -fsSL --connect-timeout 5 --max-time 10 \
+        "https://api.github.com/repos/${repo_path}/releases/latest" 2>/dev/null \
+        | grep '"tag_name"' | head -1 | sed 's/.*"tag_name":[[:space:]]*"//; s/".*//')" || true
+    if [ -z "${latest_tag}" ]; then
+        latest_tag="$(curl -fsSL --connect-timeout 5 --max-time 10 \
+            "https://api.github.com/repos/${repo_path}/tags" 2>/dev/null \
+            | grep '"name"' | head -1 | sed 's/.*"name":[[:space:]]*"//; s/".*//')" || true
+    fi
+    local latest_version="${latest_tag#v}"
+    [ -z "${latest_version}" ] && return 0
+    [ "${VERSION}" = "${latest_version}" ] && return 0
+    local newest
+    newest="$(printf '%s\n%s\n' "${VERSION}" "${latest_version}" | sort -V | tail -1)"
+    if [ "${newest}" != "${VERSION}" ]; then
+        print_warning "A newer version is available: v${latest_version} (current: v${VERSION})"
+        print_status "This installer will download the latest code from the main branch regardless."
+        echo ""
+        if ! read_yes_no "Continue?" "y"; then
+            print_status "Exiting."
+            exit 0
+        fi
+        echo ""
+    fi
+}
+
 detect_os() {
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
         if command_exists apt-get; then
@@ -137,6 +185,7 @@ main() {
     print_status "Starting installation..."
     echo
 
+    check_for_updates
     check_requirements
     setup_deployer
     show_next_steps

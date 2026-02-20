@@ -19,6 +19,7 @@ Usage: manage-ssh-keys.sh <command> [options]
 
 Commands:
   init <project> [--vault <vault>]       Generate SSH key (1Password or file-based)
+  connect [--vault <vault>]              Connect to a colleague's NetBird server
   add <server-alias> <pubkey|op://ref>   Add a colleague's public key to a server
   remove <server-alias> <fingerprint>    Remove a key by fingerprint from a server
   list <server-alias>                    List all authorized keys on a server
@@ -42,6 +43,9 @@ Examples:
 
   # List all authorized keys on a server
   manage-ssh-keys.sh list netbird-server
+
+  # Set up SSH access to a colleague's server (interactive)
+  manage-ssh-keys.sh connect
 
   # Create deploy user (hardens SSH)
   manage-ssh-keys.sh setup-deploy-user netbird-server
@@ -113,6 +117,141 @@ cmd_init() {
         print_status "2. Share the public key with colleagues: cat ${SSH_KEYS_DIR}/${project}.pub"
         print_status "3. Add the private key to your SSH agent: ssh-add ${SSH_KEYS_DIR}/${project}"
     fi
+    print_divider
+}
+
+###############################################################################
+# Command: connect
+###############################################################################
+
+cmd_connect() {
+    local vault="Netbird"
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --vault)
+                if [[ $# -lt 2 ]]; then
+                    print_error "--vault requires a value"
+                    return 1
+                fi
+                vault="$2"
+                shift 2
+                ;;
+            -*)
+                print_error "Unknown option for connect: $1"
+                return 1
+                ;;
+            *)
+                print_error "Unexpected argument: $1"
+                return 1
+                ;;
+        esac
+    done
+
+    # Check prerequisites
+    if ! command_exists hcloud; then
+        print_error "hcloud CLI is not installed."
+        print_status "Install: https://github.com/hetznercloud/cli"
+        return 1
+    fi
+
+    if ! hcloud server list >/dev/null 2>&1; then
+        print_error "hcloud is not authenticated. Run: hcloud context create <project>"
+        return 1
+    fi
+
+    if ! command_exists op; then
+        print_error "1Password CLI (op) is not installed."
+        print_status "Install: https://developer.1password.com/docs/cli/get-started/"
+        return 1
+    fi
+
+    if ! op whoami >/dev/null 2>&1; then
+        print_error "1Password CLI is not authenticated. Run: op signin"
+        return 1
+    fi
+
+    # List NetBird servers from Hetzner
+    local servers_json
+    servers_json="$(hcloud server list -l managed-by=netbird-selfhosted -o json 2>/dev/null)"
+
+    if [[ -z "${servers_json}" || "${servers_json}" == "[]" ]]; then
+        print_error "No NetBird servers found (label: managed-by=netbird-selfhosted)"
+        return 1
+    fi
+
+    # Parse into arrays
+    local names=() ips=() statuses=()
+    while IFS= read -r name; do names+=("${name}"); done < <(echo "${servers_json}" | jq -r '.[].name')
+    while IFS= read -r ip; do ips+=("${ip}"); done < <(echo "${servers_json}" | jq -r '.[].public_net.ipv4.ip')
+    while IFS= read -r status; do statuses+=("${status}"); done < <(echo "${servers_json}" | jq -r '.[].status')
+
+    local count=${#names[@]}
+
+    if [[ ${count} -eq 0 ]]; then
+        print_error "No NetBird servers found"
+        return 1
+    fi
+
+    local selection=0
+
+    if [[ ${count} -eq 1 ]]; then
+        print_status "Auto-selecting the only server: ${names[0]}"
+        selection=0
+    else
+        # Show numbered menu
+        print_header "Available NetBird servers:"
+        print_divider
+        printf "${BOLD}  %-4s %-35s %-18s %s${NC}\n" "#" "NAME" "IP" "STATUS"
+        print_divider
+        for i in "${!names[@]}"; do
+            printf "  %-4s %-35s %-18s %s\n" "$((i + 1))" "${names[$i]}" "${ips[$i]}" "${statuses[$i]}"
+        done
+        print_divider
+
+        local choice
+        while true; do
+            read -p "Select a server [1-${count}]: " -r choice
+            if [[ "${choice}" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= count )); then
+                selection=$((choice - 1))
+                break
+            fi
+            print_warning "Invalid selection. Enter a number between 1 and ${count}."
+        done
+    fi
+
+    local server_name="${names[$selection]}"
+    local server_ip="${ips[$selection]}"
+
+    # Derive project name by stripping the "netbird-selfhosted-" prefix
+    local project_name="${server_name#netbird-selfhosted-}"
+
+    print_status "Server: ${server_name} (${server_ip})"
+    print_status "Project: ${project_name}"
+
+    # Verify the SSH key exists in 1Password
+    if ! op item get "netbird-${project_name}" --vault "${vault}" >/dev/null 2>&1; then
+        print_error "1Password item 'netbird-${project_name}' not found in vault '${vault}'"
+        print_status "Ask the server owner to share the vault, or specify a different vault with --vault"
+        return 1
+    fi
+
+    print_success "Found SSH key 'netbird-${project_name}' in vault '${vault}'"
+
+    # Configure 1Password SSH agent
+    ssh_configure_1p_agent "${project_name}" "${vault}"
+
+    # Generate SSH config entry
+    ssh_generate_config "${server_name}" "${server_ip}" "${project_name}" "${vault}"
+
+    # Print ready-to-use command
+    echo ""
+    print_divider
+    print_header "Ready! Connect with:"
+    echo ""
+    print_highlight "  ssh -F ${SSH_KEYS_DIR}/ssh-config ${server_name}"
+    echo ""
     print_divider
 }
 
@@ -319,7 +458,7 @@ cmd_agent_config() {
     echo "  3. Enable 'Integrate with 1Password CLI'"
     echo ""
     print_status "Set your SSH_AUTH_SOCK to use the 1Password agent:"
-    print_highlight "  export SSH_AUTH_SOCK=\"${HOME}/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock\""
+    print_highlight "  export SSH_AUTH_SOCK=\"$(_1p_agent_sock)\""
     print_divider
 }
 
@@ -366,6 +505,9 @@ main() {
     case "${command}" in
         init)
             cmd_init "$@"
+            ;;
+        connect)
+            cmd_connect "$@"
             ;;
         add)
             cmd_add "$@"
