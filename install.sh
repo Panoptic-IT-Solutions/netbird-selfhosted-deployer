@@ -7,7 +7,7 @@
 
 set -e
 
-VERSION="3.0.0"
+VERSION="3.0.1"
 REPO_URL="https://github.com/Panoptic-IT-Solutions/netbird-selfhosted-deployer"
 ARCHIVE_URL="https://github.com/Panoptic-IT-Solutions/netbird-selfhosted-deployer/archive/refs/heads/main.tar.gz"
 INSTALL_DIR="$HOME/netbird-selfhosted-deployer"

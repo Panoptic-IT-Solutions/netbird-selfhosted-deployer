@@ -5,7 +5,7 @@
 
 set -e
 
-VERSION="3.0.0"
+VERSION="3.0.1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVER_NAME="netbird-selfhosted"
 

@@ -1,6 +1,6 @@
 # NetBird Self-Hosted Deployer
 
-![Version](https://img.shields.io/badge/version-3.0.0-blue)
+![Version](https://img.shields.io/badge/version-3.0.1-blue)
 
 Automated deployment of [NetBird](https://netbird.io/) self-hosted infrastructure on Hetzner Cloud with Azure AD (Entra ID) authentication and 1Password SSH key management.
 

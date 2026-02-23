@@ -12,7 +12,7 @@
 
 set -e
 
-VERSION="3.0.0"
+VERSION="3.0.1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source shared libraries
@@ -232,7 +232,11 @@ collect_azure_config() {
         AZURE_TENANT_ID="${ENTRA_TENANT_ID}"
         AZURE_CLIENT_ID="${ENTRA_SPA_CLIENT_ID}"
         AZURE_OBJECT_ID="${ENTRA_SPA_OBJECT_ID}"
-        AZURE_CLIENT_SECRET=""  # SPA uses PKCE, no client secret
+        AZURE_CLIENT_SECRET=""  # SPA uses PKCE, no client secret for frontend
+        # Management app uses a separate client ID + secret for server-side Graph API calls
+        AZURE_MGMT_CLIENT_ID="${ENTRA_MGMT_CLIENT_ID:-${ENTRA_SPA_CLIENT_ID}}"
+        AZURE_MGMT_CLIENT_SECRET="${ENTRA_MGMT_CLIENT_SECRET:-}"
+        AZURE_MGMT_OBJECT_ID="${ENTRA_MGMT_OBJECT_ID:-${ENTRA_SPA_OBJECT_ID}}"
         return 0
     fi
 
@@ -281,13 +285,46 @@ collect_azure_config() {
     done
 
     echo
+    print_header "=== Management App Registration ==="
+    echo "NetBird requires a separate management app registration with a client secret"
+    echo "for server-side user sync via the Microsoft Graph API."
+    echo ""
+    print_status "Create a second app registration in Azure AD with:"
+    echo "  - Name: NetBird Management <project>"
+    echo "  - Platform: Web (NOT Single Page Application)"
+    echo "  - Client secret: Create one under Certificates & secrets"
+    echo "  - API permissions: User.Read.All (Application), Directory.Read.All (Application)"
+    echo "  - Grant admin consent for all permissions"
+    echo ""
+
+    read -p "Management App Client ID: " AZURE_MGMT_CLIENT_ID
+    while [[ ! "$AZURE_MGMT_CLIENT_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; do
+        print_error "Please enter a valid client ID (UUID format)"
+        read -p "Management App Client ID: " AZURE_MGMT_CLIENT_ID
+    done
+
+    read -p "Management App Client Secret: " AZURE_MGMT_CLIENT_SECRET
+    while [[ -z "$AZURE_MGMT_CLIENT_SECRET" ]]; do
+        print_error "Client secret is required for the management service"
+        read -p "Management App Client Secret: " AZURE_MGMT_CLIENT_SECRET
+    done
+
+    read -p "Management App Object ID: " AZURE_MGMT_OBJECT_ID
+    while [[ ! "$AZURE_MGMT_OBJECT_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; do
+        print_error "Please enter a valid object ID (UUID format)"
+        read -p "Management App Object ID: " AZURE_MGMT_OBJECT_ID
+    done
+
+    echo
     print_header "=== Configuration Summary ==="
     echo "Customer: $CUSTOMER_NAME"
     echo "Server Name: $SERVER_NAME"
     echo "Domain: $NETBIRD_DOMAIN"
     echo "Tenant ID: $AZURE_TENANT_ID"
-    echo "Client ID: $AZURE_CLIENT_ID"
-    echo "Object ID: $AZURE_OBJECT_ID"
+    echo "SPA Client ID: $AZURE_CLIENT_ID"
+    echo "SPA Object ID: $AZURE_OBJECT_ID"
+    echo "Management Client ID: $AZURE_MGMT_CLIENT_ID"
+    echo "Management Object ID: $AZURE_MGMT_OBJECT_ID"
     echo "Authentication: SPA with PKCE (no client secret)"
     echo "Let's Encrypt Email: $LETSENCRYPT_EMAIL"
     echo
@@ -870,11 +907,11 @@ NETBIRD_TOKEN_SOURCE="idToken"
 # Device Authentication (disabled for Azure AD)
 NETBIRD_AUTH_DEVICE_AUTH_PROVIDER="none"
 
-# Management Service Azure AD Integration
+# Management Service Azure AD Integration (uses separate management app with client secret)
 NETBIRD_MGMT_IDP="azure"
-NETBIRD_IDP_MGMT_CLIENT_ID="$AZURE_CLIENT_ID"
-NETBIRD_IDP_MGMT_CLIENT_SECRET="$AZURE_CLIENT_SECRET"
-NETBIRD_IDP_MGMT_EXTRA_OBJECT_ID="$AZURE_OBJECT_ID"
+NETBIRD_IDP_MGMT_CLIENT_ID="$AZURE_MGMT_CLIENT_ID"
+NETBIRD_IDP_MGMT_CLIENT_SECRET="$AZURE_MGMT_CLIENT_SECRET"
+NETBIRD_IDP_MGMT_EXTRA_OBJECT_ID="$AZURE_MGMT_OBJECT_ID"
 NETBIRD_IDP_MGMT_EXTRA_GRAPH_API_ENDPOINT="https://graph.microsoft.com/v1.0"
 
 # Optional: Single account mode (recommended for most deployments)
@@ -1302,46 +1339,33 @@ EOF
     print_success "NetBird services started"
 }
 
-# Function to verify SSL certificate
+# Function to verify SSL certificate (non-blocking single check)
 verify_ssl_certificate() {
     local domain="$1"
     local server_ip="$2"
-    local max_attempts=30
-    local attempt=0
 
-    print_header "=== SSL Certificate Verification ==="
-    print_status "Checking SSL certificate for $domain..."
+    print_header "=== SSL Certificate ==="
 
-    while [ $attempt -lt $max_attempts ]; do
-        attempt=$((attempt + 1))
-        print_status "Attempt $attempt/$max_attempts: Testing SSL certificate..."
-
-        # Check if certificate exists and is valid
-        if cert_info=$(timeout 10 openssl s_client -connect "$domain:443" -servername "$domain" </dev/null 2>/dev/null | openssl x509 -noout -dates 2>/dev/null); then
-            if [ -n "$cert_info" ]; then
-                print_success "SSL certificate is active!"
-                echo "$cert_info"
-
-                # Test HTTPS connectivity
-                if timeout 10 curl -s -I "https://$domain" >/dev/null 2>&1; then
-                    print_success "HTTPS connectivity test passed!"
-                    return 0
-                else
-                    print_warning "Certificate exists but HTTPS connection failed"
-                fi
+    # Single quick check — Let's Encrypt certificates typically take 5-10 minutes
+    if cert_info=$(timeout 10 openssl s_client -connect "$domain:443" -servername "$domain" </dev/null 2>/dev/null | openssl x509 -noout -dates 2>/dev/null); then
+        if [ -n "$cert_info" ]; then
+            print_success "SSL certificate is already active!"
+            echo "$cert_info"
+            if timeout 10 curl -s -I "https://$domain" >/dev/null 2>&1; then
+                print_success "HTTPS connectivity test passed!"
+            else
+                print_warning "Certificate exists but HTTPS connection failed — may need a moment to propagate"
             fi
+            return 0
         fi
+    fi
 
-        if [ $attempt -lt $max_attempts ]; then
-            print_status "Certificate not ready yet, waiting 30 seconds..."
-            sleep 30
-        fi
-    done
-
-    print_error "SSL certificate verification failed after $max_attempts attempts"
-    print_status "You can check certificate generation logs with:"
-    print_status "ssh root@$server_ip '/root/netbird-management.sh ssl'"
-    return 1
+    print_status "SSL certificate is not ready yet — this is normal."
+    print_status "Let's Encrypt certificates typically take 5-10 minutes after DNS propagates."
+    echo ""
+    print_status "Monitor certificate status with:"
+    print_highlight "  ssh root@$server_ip '/root/netbird-management.sh ssl'"
+    return 0
 }
 
 # Function to show Azure AD restart instructions
@@ -1657,9 +1681,20 @@ show_summary() {
 
     print_success "🎉 NetBird self-hosted deployment completed successfully!"
     echo
-    print_warning "⚠️  IMPORTANT: Complete DNS configuration above before accessing the dashboard!"
+    echo "═══════════════════════════════════════════════════════════════"
+    echo "  ⚠️  BEFORE YOU ACCESS THE DASHBOARD"
+    echo "═══════════════════════════════════════════════════════════════"
+    echo
+    print_warning "1. DNS — Create an A record pointing $NETBIRD_DOMAIN to $server_ip"
+    print_warning "2. SSL — Wait 5-10 min after DNS, then check:"
+    echo "   ssh root@$server_ip '/root/netbird-management.sh ssl'"
+    print_warning "3. API PERMISSIONS — Grant admin consent in Azure AD:"
+    echo "   Portal: https://portal.azure.com"
+    echo "   Azure AD > App Registrations > Your NetBird App > API permissions"
+    echo "   Ensure User.Read.All is added and admin consent is granted"
     echo
     print_highlight "🌐 Your NetBird URL will be: https://$NETBIRD_DOMAIN"
+    echo
 }
 
 # Function to run post-deployment checks
@@ -1843,7 +1878,7 @@ main() {
     check_prerequisites
 
     # Collect Azure AD configuration if not provided via command line
-    if [ -z "$NETBIRD_DOMAIN" ] || [ -z "$AZURE_TENANT_ID" ] || [ -z "$AZURE_CLIENT_ID" ] || [ -z "$AZURE_CLIENT_SECRET" ] || [ -z "$AZURE_OBJECT_ID" ] || [ -z "$LETSENCRYPT_EMAIL" ]; then
+    if [ -z "$NETBIRD_DOMAIN" ] || [ -z "$AZURE_TENANT_ID" ] || [ -z "$AZURE_CLIENT_ID" ] || [ -z "$AZURE_OBJECT_ID" ] || [ -z "$LETSENCRYPT_EMAIL" ]; then
         collect_azure_config
     fi
 
